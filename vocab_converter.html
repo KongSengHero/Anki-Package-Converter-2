@@ -438,9 +438,6 @@
       <h1>Vocabulary Text to Anki &amp; JSON Converter</h1>
       <p class="subtitle">Parse raw Japanese + English notes or JSON decks into official Kaishi 1.5k Anki Packages (.apkg) &amp; JSON decks.</p>
     </div>
-    <div>
-      <a href="index.html" style="color: var(--accent); text-decoration: none; font-size: 0.9rem; font-weight: 700;">Back to App</a>
-    </div>
   </header>
 
   <div class="card">
@@ -453,13 +450,6 @@
         <label class="field-label" for="deckTagInput">Card Tag</label>
         <input type="text" id="deckTagInput" value="IT_Pathway" placeholder="e.g. IT_Pathway" />
       </div>
-    </div>
-
-    <div style="display: flex; align-items: center; gap: 8px;">
-      <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #cbd5e1; cursor: pointer; user-select: none;">
-        <input type="checkbox" id="includeAudioCheckbox" checked style="width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer;" />
-        <span>Include MP3 Audio in .apkg (uncheck for instant export without audio)</span>
-      </label>
     </div>
 
     <textarea id="rawInput" placeholder="Paste raw notes or JSON array here... Examples:
@@ -493,7 +483,8 @@
         Parsed Preview (<span id="cardCount">0 cards</span>)
       </h2>
       <div class="btn-group">
-        <button class="export-apkg" id="exportApkgBtn" onclick="exportAnkiPackage()">Download Anki Package (.apkg)</button>
+        <button class="export-apkg" id="exportApkgBtn" onclick="exportAnkiPackage(true)">Download with Audio (.apkg)</button>
+        <button class="secondary" id="exportNoAudioBtn" onclick="exportAnkiPackage(false)">Download Without Audio (.apkg)</button>
         <button class="success" onclick="downloadJSON()">Download JSON</button>
         <button class="secondary" onclick="copyJSON()">Copy JSON</button>
       </div>
@@ -1076,15 +1067,15 @@ async function fetchBrowserAudio(text) {
   return null;
 }
 
-async function exportAnkiPackage() {
+async function exportAnkiPackage(withAudio = true) {
   if (parsedResult.length === 0) {
     alert('Please parse some cards first.');
     return;
   }
 
-  const exportBtn = document.getElementById('exportApkgBtn');
+  const exportBtn = withAudio ? document.getElementById('exportApkgBtn') : document.getElementById('exportNoAudioBtn');
   const originalText = exportBtn.textContent;
-  exportBtn.textContent = 'Preparing .apkg...';
+  exportBtn.textContent = withAudio ? 'Preparing .apkg...' : 'Generating .apkg...';
   exportBtn.disabled = true;
 
   try {
@@ -1334,13 +1325,12 @@ async function exportAnkiPackage() {
     const noteStmt = db.prepare(`INSERT INTO notes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const cardStmt = db.prepare(`INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-    const includeAudio = document.getElementById('includeAudioCheckbox') ? document.getElementById('includeAudioCheckbox').checked : true;
     const mediaMap = {};
     const mediaFiles = {};
     let mediaIndex = 0;
 
     for (let i = 0; i < parsedResult.length; i++) {
-      exportBtn.textContent = includeAudio ? 
+      exportBtn.textContent = withAudio ? 
         `Generating Audio (${i + 1}/${parsedResult.length})...` : 
         `Processing Card (${i + 1}/${parsedResult.length})...`;
       const item = parsedResult[i];
@@ -1362,7 +1352,7 @@ async function exportAnkiPackage() {
       const pitchAccentNotes = item.pitchAccentNotes || '';
       const tag = tagPrefix || '';
 
-      if (includeAudio) {
+      if (withAudio) {
         if (!wordAudio && (item.rawSpeech || word)) {
           const audioBuf = await fetchBrowserAudio(item.rawSpeech || word);
           if (audioBuf) {
@@ -1474,7 +1464,7 @@ async function exportAnkiPackage() {
       compressionOptions: { level: 9 }
     });
 
-    const safeFileName = deckName.replace(/[^a-zA-Z0-9_\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf-]/g, '_') + '.apkg';
+    const safeFileName = deckName.replace(/[^a-zA-Z0-9_\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf-]/g, '_') + (withAudio ? '.apkg' : '_no_audio.apkg');
     const downloadAnchor = document.createElement('a');
     downloadAnchor.href = URL.createObjectURL(apkgBlob);
     downloadAnchor.download = safeFileName;
