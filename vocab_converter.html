@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vocabulary Raw Text to Anki &amp; JSON Converter</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #131b2e;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+      --accent: #38bdf8;
+      --border: #232f48;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --kaishi-blue: #5586cd;
+      --anki-card-bg: #181a20;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 20px;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 920px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    
+    p.subtitle {
+      font-size: 0.88rem;
+      color: var(--text-sub);
+      margin-top: 4px;
+    }
+    
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    
+    .settings-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 12px;
+    }
+    
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .field-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    input[type="text"] {
+      background: #090d16;
+      color: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      font-family: inherit;
+    }
+    
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    
+    textarea {
+      width: 100%;
+      height: 220px;
+      background: #090d16;
+      color: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      line-height: 1.6;
+      resize: vertical;
+      font-family: inherit;
+    }
+    
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    
+    button, .btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      user-select: none;
+    }
+    
+    button:hover, .btn:hover {
+      background: var(--primary-hover);
+    }
+    
+    button:active, .btn:active {
+      transform: scale(0.98);
+    }
+    
+    button.secondary, .btn.secondary {
+      background: #232f48;
+    }
+    
+    button.secondary:hover, .btn.secondary:hover {
+      background: #334155;
+    }
+    
+    button.success, .btn.success {
+      background: var(--success);
+    }
+    
+    button.success:hover, .btn.success:hover {
+      background: #16a34a;
+    }
+    
+    button.export-apkg {
+      background: linear-gradient(135deg, #0284c7, #6366f1);
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+    }
+    
+    button.export-apkg:hover {
+      background: linear-gradient(135deg, #0369a1, #4f46e5);
+      box-shadow: 0 6px 16px rgba(2, 132, 199, 0.45);
+    }
+    
+    .preview-section {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+    }
+    
+    .preview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    
+    .preview-tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    
+    .tab-btn {
+      background: transparent;
+      color: var(--text-sub);
+      border: 1px solid transparent;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+    
+    .tab-btn.active {
+      background: #232f48;
+      color: #fff;
+      border-color: var(--border);
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    
+    .item-card {
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .item-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    
+    .item-term {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    
+    .item-english {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    
+    .item-def {
+      font-size: 0.88rem;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    
+    rt {
+      color: var(--accent);
+      font-size: 0.55em;
+      font-weight: 600;
+    }
+    
+    ruby {
+      ruby-position: over;
+    }
+    
+    .kaishi-simulator {
+      background: #0d121f;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    
+    .sim-card {
+      width: 100%;
+      max-width: 620px;
+      background: var(--anki-card-bg);
+      color: #ffffff;
+      border: 1px solid #2a2e39;
+      border-radius: 10px;
+      padding: 44px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      font-family: "Hiragino Kaku Gothic Pro", "Noto Sans JP", Meiryo, "MS PGothic", sans-serif;
+    }
+    
+    .kaishi-word {
+      font-size: 44px;
+      font-weight: 500;
+      color: #ffffff;
+      line-height: 1.3;
+      margin-bottom: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    
+    .kaishi-word ruby rt,
+    .kaishi-sentence ruby rt {
+      font-size: 0.5em;
+      color: #ffffff;
+      font-weight: normal;
+    }
+    
+    .kaishi-meaning {
+      font-size: 25px;
+      font-weight: normal;
+      color: #ffffff;
+      padding-bottom: 20px;
+    }
+    
+    .kaishi-sentence {
+      font-size: 25px;
+      font-weight: normal;
+      color: #ffffff;
+      line-height: 1.6;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    .kaishi-sentence-front {
+      font-size: 20px;
+      font-weight: normal;
+      color: #ffffff;
+      line-height: 1.6;
+      margin-top: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    .kaishi-sentence b,
+    .kaishi-sentence-front b {
+      color: var(--kaishi-blue);
+      font-weight: bold;
+    }
+    
+    .kaishi-sentence b ruby rt,
+    .kaishi-sentence-front b ruby rt {
+      color: var(--kaishi-blue);
+    }
+    
+    .kaishi-sentence-en {
+      font-size: 24px;
+      font-weight: normal;
+      color: #cbd5e1;
+      padding-bottom: 10px;
+      margin-top: 6px;
+    }
+    
+    .kaishi-note {
+      font-size: 20px;
+      font-weight: normal;
+      color: #94a3b8;
+      padding-top: 12px;
+      margin-top: 10px;
+      width: 100%;
+      text-align: center;
+      border-top: 1px solid #2a2e39;
+    }
+    
+    .audio-play-btn {
+      background: transparent;
+      border: 1px solid #3b4252;
+      color: #94a3b8;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    .audio-play-btn:hover {
+      background: #232f48;
+      color: #38bdf8;
+      border-color: #38bdf8;
+    }
+    
+    .sim-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div>
+      <h1>Vocabulary Text to Anki &amp; JSON Converter</h1>
+      <p class="subtitle">Parse raw Japanese + English notes or JSON decks into official Kaishi 1.5k Anki Packages (.apkg) &amp; JSON decks.</p>
+    </div>
+    <div>
+      <a href="index.html" style="color: var(--accent); text-decoration: none; font-size: 0.9rem; font-weight: 700;">Back to App</a>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="settings-row">
+      <div class="field-group">
+        <label class="field-label" for="deckNameInput">Anki Deck Name</label>
+        <input type="text" id="deckNameInput" value="Japanese IT Pathway::Vocab" placeholder="e.g. Japanese IT Pathway::Step 2 Vocab 1" />
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="deckTagInput">Card Tag</label>
+        <input type="text" id="deckTagInput" value="IT_Pathway" placeholder="e.g. IT_Pathway" />
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #cbd5e1; cursor: pointer; user-select: none;">
+        <input type="checkbox" id="includeAudioCheckbox" checked style="width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer;" />
+        <span>Include MP3 Audio in .apkg (uncheck for instant export without audio)</span>
+      </label>
+    </div>
+
+    <textarea id="rawInput" placeholder="Paste raw notes or JSON array here... Examples:
+
+企業概要 [きぎょうがいよう] Company Overview
+企業の事業内容や所在地、資本金などをまとめた基本情報。
+例文: 取引先の企業概要を確認して信用調査を行う。
+
+要件定義 [ようけんていぎ] Requirements Definition
+システム開発でユーザーが必要とする機能や性能を明確にする工程。
+例: クライアントと打ち合わせをして要件定義書を作成する。
+
+クラウド Cloud Computing
+インターネット経由でサーバーやストレージなどのコンピューター資源を提供する仕組み。
+例文: 社内システムをクラウド環境に移行する。"></textarea>
+
+    <div class="btn-group">
+      <button onclick="processRawText()">Parse &amp; Preview</button>
+      <label class="btn secondary" style="cursor: pointer;">
+        Import JSON File
+        <input type="file" id="jsonFileInput" accept=".json" style="display: none;" onchange="handleJsonImport(event)" />
+      </label>
+      <button class="secondary" onclick="loadSampleText()">Load Sample Notes</button>
+      <button class="secondary" onclick="clearInput()">Clear</button>
+    </div>
+  </div>
+
+  <div class="card preview-section" id="previewSection">
+    <div class="preview-header">
+      <h2 style="font-size: 1.2rem; font-weight: 700; color: #fff;">
+        Parsed Preview (<span id="cardCount">0 cards</span>)
+      </h2>
+      <div class="btn-group">
+        <button class="export-apkg" id="exportApkgBtn" onclick="exportAnkiPackage()">Download Anki Package (.apkg)</button>
+        <button class="success" onclick="downloadJSON()">Download JSON</button>
+        <button class="secondary" onclick="copyJSON()">Copy JSON</button>
+      </div>
+    </div>
+
+    <div class="preview-tabs">
+      <button class="tab-btn active" id="tabBtnKaishi" onclick="switchTab('kaishi')">Kaishi 1.5k Preview</button>
+      <button class="tab-btn" id="tabBtnList" onclick="switchTab('list')">Card List</button>
+    </div>
+
+    <div class="tab-content active" id="tabKaishi">
+      <div class="kaishi-simulator">
+        <div class="sim-controls">
+          <button class="secondary" onclick="prevSimCard()">Prev</button>
+          <span id="simIndex" style="font-size: 0.9rem; font-weight: 700; color: var(--text-sub);">Card 1 / 1</span>
+          <button class="secondary" onclick="nextSimCard()">Next</button>
+          <button class="secondary" onclick="toggleSimAnswer()" id="simToggleBtn">Flip (Show Back)</button>
+        </div>
+
+        <div class="sim-card" id="simCard"></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tabList">
+      <div class="card-list" id="cardList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let parsedResult = [];
+let currentSimIdx = 0;
+let simShowBack = false;
+
+function playAudio(rawText) {
+  if (!rawText) return;
+  const clean = stripHtml(rawText).replace(/\[[^\]]+\]/g, '').trim();
+  if (!clean) return;
+
+  const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&ttsspeed=1&q=${encodeURIComponent(clean)}`;
+  const audio = new Audio(url);
+  audio.playbackRate = 1.15;
+  audio.defaultPlaybackRate = 1.15;
+  
+  const playPromise = audio.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(() => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(clean);
+        utterance.lang = 'ja-JP';
+        const voices = window.speechSynthesis.getVoices();
+        const jaVoice = voices.find(v => v.lang === 'ja-JP' || v.lang.startsWith('ja') || v.lang.includes('JP'));
+        if (jaVoice) utterance.voice = jaVoice;
+        utterance.rate = 1.15;
+        window.speechSynthesis.speak(utterance);
+      }
+    });
+  }
+}
+
+function playSimWord() {
+  if (parsedResult.length === 0) return;
+  const card = parsedResult[currentSimIdx];
+  playAudio(card.rawSpeech || card.plain);
+}
+
+function playSimSentence() {
+  if (parsedResult.length === 0) return;
+  const card = parsedResult[currentSimIdx];
+  playAudio(card.sentence || card.sentenceFurigana || card.plain);
+}
+
+function cleanExamplePrefix(line) {
+  return line.replace(/^([例※・\-]|例文[:：]|ex[:：]|Ex[:：])\s*/, '').trim();
+}
+
+function cleanSentenceRuby(raw, dynamicMap) {
+  let s = raw;
+  s = s.replace(/([\u4e00-\u9faf]+)[\[\(\{（【《]([\u3040-\u309f]+)[\]\)\}）】》]/g, '<ruby>$1<rt>$2</rt></ruby>');
+  
+  if (dynamicMap) {
+    const keys = Object.keys(dynamicMap).sort((a, b) => b.length - a.length);
+    for (const k of keys) {
+      const r = dynamicMap[k];
+      if (!k || !r || k === r) continue;
+      const escapedK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`(?<!<ruby>[^>]*)(?<!<rt>[^>]*)${escapedK}(?!<\/rt>)(?!<\/ruby>)`, 'g');
+      s = s.replace(pattern, `<ruby>${k}<rt>${r}</rt></ruby>`);
+    }
+  }
+  
+  return s;
+}
+
+function stripHtml(html) {
+  return (html || '')
+    .replace(/<rt>[\s\S]*?<\/rt>/g, '')
+    .replace(/<rp>[\s\S]*?<\/rp>/g, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function rubyToAnkiFurigana(rubyHtml) {
+  if (!rubyHtml) return '';
+  let res = rubyHtml.replace(/<ruby>(.*?)<rt>(.*?)<\/rt><\/ruby>/g, ' $1[$2]');
+  res = res.replace(/<[^>]*>/g, '');
+  return res.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeCard(c, idx) {
+  const plain = c.plain || c.word || c.kanji || c.expression || '';
+  const rawSpeech = c.rawSpeech || c.reading || c.kana || '';
+  let ruby = c.ruby || c.wordFurigana || '';
+  if (!ruby) {
+    if (plain && rawSpeech && plain !== rawSpeech) {
+      ruby = `<ruby>${plain}<rt>${rawSpeech}</rt></ruby>`;
+    } else {
+      ruby = plain;
+    }
+  }
+  const english = c.english || c.meaning || c.wordMeaning || c.glossary || '';
+  const def = c.def || c.definition || '';
+  
+  let sentence = c.sentence || c.sentenceKanji || '';
+  let sentenceFurigana = c.sentenceFurigana || '';
+  let sentenceEnglish = c.sentenceMeaning || c.sentenceEnglish || '';
+  let notes = c.notes || def || '';
+
+  if (plain && sentence && !sentence.includes('<b>')) {
+    const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    sentence = sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
+  }
+
+  if (plain && sentenceFurigana && !sentenceFurigana.includes('<b>')) {
+    const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    sentenceFurigana = sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
+  }
+
+  return {
+    id: c.id || (idx + 1),
+    plain,
+    ruby,
+    rawSpeech,
+    english,
+    def,
+    sentence,
+    sentenceFurigana,
+    sentenceEnglish,
+    notes
+  };
+}
+
+function parseCard(headerLine, bodyLines, id, dynamicMap) {
+  let header = headerLine.trim();
+  let plain = '';
+  let reading = '';
+  let english = '';
+
+  const bracketMatch = header.match(/^(.+?)\s*[\[\(\{（【《]([\u3040-\u309f]+)[\]\)\}）】》]\s*(.*)$/);
+  const slashMatch = header.match(/^(.+?)\s*[\/\|]\s*([\u3040-\u309f]+)\s*[\/\|]\s*(.*)$/);
+  const joinedMatch = header.match(/^([\u4e00-\u9faf]+)([\u3040-\u309f]+)\s+([a-zA-Z0-9\s\/\(\)\,\.\'\?\!\-&:]+)$/);
+  const generalMatch = header.match(/^([^\s]+)\s+(.+)$/);
+
+  if (bracketMatch) {
+    plain = bracketMatch[1].trim();
+    reading = bracketMatch[2].trim();
+    english = bracketMatch[3].trim();
+  } else if (slashMatch) {
+    plain = slashMatch[1].trim();
+    reading = slashMatch[2].trim();
+    english = slashMatch[3].trim();
+  } else if (joinedMatch) {
+    plain = joinedMatch[1].trim();
+    reading = joinedMatch[2].trim();
+    english = joinedMatch[3].trim();
+  } else if (generalMatch) {
+    plain = generalMatch[1].trim();
+    reading = generalMatch[1].trim();
+    english = generalMatch[2].trim();
+  } else {
+    plain = header;
+    reading = header;
+    english = '';
+  }
+
+  if (dynamicMap && plain && reading && plain !== reading && !/^[\u3040-\u309f\u30a0-\u30ffA-Za-z0-9]+$/.test(plain)) {
+    dynamicMap[plain] = reading;
+  }
+
+  let ruby = `<ruby>${plain}<rt>${reading}</rt></ruby>`;
+  if (plain === reading || /^[A-Za-z0-9\u30a0-\u30ff\s]+$/.test(plain)) {
+    ruby = plain;
+  }
+
+  let formattedDef = '';
+  let sentenceKanji = '';
+  let sentenceFurigana = '';
+  let sentenceEnglish = '';
+  let notes = '';
+
+  if (bodyLines.length > 0) {
+    const defPart = cleanSentenceRuby(bodyLines[0], dynamicMap);
+    if (bodyLines.length > 1) {
+      const exLines = bodyLines.slice(1).map(ex => cleanSentenceRuby(cleanExamplePrefix(ex), dynamicMap));
+      const examples = exLines.join('<br>');
+      formattedDef = `${defPart}<br><small style='color:var(--text-sub);'>例文: ${examples}</small>`;
+      sentenceKanji = stripHtml(exLines[0]);
+      sentenceFurigana = rubyToAnkiFurigana(exLines[0]);
+      notes = formattedDef;
+    } else {
+      formattedDef = defPart;
+      notes = formattedDef;
+    }
+  }
+
+  if (plain && sentenceKanji) {
+    const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    sentenceKanji = sentenceKanji.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
+  }
+
+  if (plain && sentenceFurigana) {
+    const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    sentenceFurigana = sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
+  }
+
+  return {
+    id,
+    plain,
+    ruby,
+    rawSpeech: reading,
+    english,
+    def: formattedDef,
+    sentence: sentenceKanji,
+    sentenceFurigana,
+    sentenceEnglish,
+    notes
+  };
+}
+
+function processRawText() {
+  const raw = document.getElementById('rawInput').value.trim();
+  if (!raw) {
+    alert('Please paste some vocabulary text or JSON first.');
+    return;
+  }
+
+  if (raw.startsWith('[') || raw.startsWith('{')) {
+    try {
+      const parsedJson = JSON.parse(raw);
+      const items = Array.isArray(parsedJson) ? parsedJson : (parsedJson.cards || [parsedJson]);
+      parsedResult = items.map((c, idx) => normalizeCard(c, idx));
+      currentSimIdx = 0;
+      simShowBack = false;
+      renderPreview();
+      return;
+    } catch (e) {
+    }
+  }
+
+  const lines = raw.replace(/\r\n/g, '\n').split('\n').map(l => l.trim()).filter(Boolean);
+  const rawCards = [];
+  let current = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isExampleNote = /^([例※・\-]|例文[:：]|ex[:：]|Ex[:：])/.test(line);
+    const hasEnglishTail = /[a-zA-Z]{2,}/.test(line);
+    const isHeader = !isExampleNote && (
+      /[\[\(\{（【《][\u3040-\u309f]+[\]\)\}）】》]/.test(line) ||
+      /[\/\|][\u3040-\u309f]+[\/\|]/.test(line) ||
+      /^([\u4e00-\u9faf]+)([\u3040-\u309f]+)\s+[a-zA-Z]/.test(line) ||
+      (/^([\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fafA-Za-z0-9\-_]+)\s+([a-zA-Z])/.test(line) && hasEnglishTail)
+    );
+
+    if (isHeader) {
+      if (current) {
+        rawCards.push(current);
+      }
+      current = {
+        header: line,
+        body: []
+      };
+    } else {
+      if (current) {
+        current.body.push(line);
+      } else {
+        current = {
+          header: line,
+          body: []
+        };
+      }
+    }
+  }
+
+  if (current) {
+    rawCards.push(current);
+  }
+
+  const dynamicMap = {};
+  parsedResult = rawCards.map((c, idx) => parseCard(c.header, c.body, idx + 1, dynamicMap));
+
+  currentSimIdx = 0;
+  simShowBack = false;
+  renderPreview();
+}
+
+function handleJsonImport(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const content = e.target.result;
+      const parsedJson = JSON.parse(content);
+      const items = Array.isArray(parsedJson) ? parsedJson : (parsedJson.cards || [parsedJson]);
+      
+      const fileName = file.name.replace(/\.json$/i, '');
+      const formattedTitle = fileName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      document.getElementById('deckNameInput').value = `Japanese IT Pathway::${formattedTitle}`;
+      document.getElementById('deckTagInput').value = fileName;
+      document.getElementById('rawInput').value = JSON.stringify(items, null, 2);
+
+      parsedResult = items.map((c, idx) => normalizeCard(c, idx));
+      currentSimIdx = 0;
+      simShowBack = false;
+      renderPreview();
+    } catch (err) {
+      alert('Failed to parse JSON file: ' + err.message);
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+  event.target.value = '';
+}
+
+function switchTab(tabName) {
+  const isKaishi = tabName === 'kaishi';
+  document.getElementById('tabKaishi').classList.toggle('active', isKaishi);
+  document.getElementById('tabList').classList.toggle('active', !isKaishi);
+  document.getElementById('tabBtnKaishi').classList.toggle('active', isKaishi);
+  document.getElementById('tabBtnList').classList.toggle('active', !isKaishi);
+}
+
+function toggleSimAnswer() {
+  simShowBack = !simShowBack;
+  renderSimCard();
+}
+
+function prevSimCard() {
+  if (parsedResult.length === 0) return;
+  currentSimIdx = (currentSimIdx - 1 + parsedResult.length) % parsedResult.length;
+  simShowBack = false;
+  renderSimCard();
+}
+
+function nextSimCard() {
+  if (parsedResult.length === 0) return;
+  currentSimIdx = (currentSimIdx + 1) % parsedResult.length;
+  simShowBack = false;
+  renderSimCard();
+}
+
+function renderSimCard() {
+  const simCard = document.getElementById('simCard');
+  const simIndex = document.getElementById('simIndex');
+  const simToggleBtn = document.getElementById('simToggleBtn');
+
+  if (parsedResult.length === 0) {
+    simCard.innerHTML = '<div style="font-size: 20px; font-weight: 700;">No cards loaded</div>';
+    simIndex.textContent = 'Card 0 / 0';
+    return;
+  }
+
+  const card = parsedResult[currentSimIdx];
+  simIndex.textContent = `Card ${currentSimIdx + 1} / ${parsedResult.length}`;
+
+  if (!simShowBack) {
+    simToggleBtn.textContent = 'Flip (Show Back)';
+    simCard.innerHTML = `
+      <div lang="ja">
+        <div class="kaishi-word">
+          <span>${card.plain}</span>
+          <button class="audio-play-btn" title="Pronounce Word" onclick="playSimWord()">&#128266;</button>
+        </div>
+        ${card.sentence ? `
+          <div class="kaishi-sentence-front">
+            <span>${card.sentence}</span>
+            <button class="audio-play-btn" title="Pronounce Sentence" onclick="playSimSentence()">&#128266;</button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  } else {
+    simToggleBtn.textContent = 'Flip (Show Front)';
+    simCard.innerHTML = `
+      <div lang="ja">
+        <div class="kaishi-word">
+          <span>${card.ruby}</span>
+          <button class="audio-play-btn" title="Pronounce Word" onclick="playSimWord()">&#128266;</button>
+        </div>
+        <div class="kaishi-meaning">${card.english}</div>
+        ${card.sentenceFurigana ? `
+          <div class="kaishi-sentence">
+            <span>${card.sentenceFurigana.replace(/(\S+)\[([^\]]+)\]/g, '<ruby>$1<rt>$2</rt></ruby>')}</span>
+            <button class="audio-play-btn" title="Pronounce Sentence" onclick="playSimSentence()">&#128266;</button>
+          </div>
+        ` : ''}
+        ${card.sentenceEnglish ? `<div class="kaishi-sentence-en">${card.sentenceEnglish}</div>` : ''}
+        ${card.notes ? `<div class="kaishi-note">Note: ${card.notes}</div>` : ''}
+      </div>
+    `;
+  }
+}
+
+function renderPreview() {
+  const previewSection = document.getElementById('previewSection');
+  const cardList = document.getElementById('cardList');
+  const cardCount = document.getElementById('cardCount');
+
+  if (parsedResult.length === 0) {
+    previewSection.style.display = 'none';
+    return;
+  }
+
+  cardCount.textContent = `${parsedResult.length} cards`;
+  cardList.innerHTML = parsedResult.map(c => `
+    <div class="item-card">
+      <div class="item-top">
+        <span class="item-term">${c.ruby}</span>
+        <span class="item-english">${c.english}</span>
+      </div>
+      <div class="item-def">${c.def || c.notes}</div>
+    </div>
+  `).join('');
+
+  previewSection.style.display = 'flex';
+  renderSimCard();
+}
+
+const GUID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-./:;<=>?@[]^_`{|}~';
+
+function generateGuid() {
+  let guid = '';
+  for (let i = 0; i < 10; i++) {
+    const idx = Math.floor(Math.random() * GUID_CHARS.length);
+    guid += GUID_CHARS[idx];
+  }
+  return guid;
+}
+
+function computeStringHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getRandomId() {
+  return 1000000000 + Math.floor(Math.random() * 1000000000);
+}
+
+const KAISHI_CSS = `.card {
+ font-family: "Hiragino Kaku Gothic Pro", "Noto Sans JP", Meiryo, "MS PGothic", sans-serif;
+ font-size: 44px;
+ text-align: center;
+ background-color: #181a20;
+ color: #ffffff;
+ padding: 30px 15px;
+}
+
+:not(.nightMode) .card,
+.nightMode .card {
+ background-color: #181a20;
+ color: #ffffff;
+}
+
+img {
+ max-width: 300px;
+ max-height: 250px;
+}
+
+.mobile img {
+ max-width: 50vw;
+}
+
+b {
+ color: #5586cd;
+ font-weight: bold;
+}
+
+:not(.nightMode) b,
+.nightMode b {
+ color: #5586cd;
+}
+
+ruby {
+ ruby-position: over;
+}
+
+rt {
+ font-size: 0.5em;
+}`;
+
+const KAISHI_Q_FMT = `<div lang="ja">
+{{Word}}
+{{#Sentence}}
+<div style='font-size: 20px; margin-top: 8px;'>{{Sentence}}</div>
+{{/Sentence}}
+</div>`;
+
+const KAISHI_A_FMT = `<div lang="ja">
+{{furigana:Word Furigana}}
+
+{{#Pitch Accent}}
+	<br><div style='font-size: 24px'>{{Pitch Accent}}</div>
+{{/Pitch Accent}} 
+
+<div style='font-size: 25px; padding-bottom:20px'>{{Word Meaning}}</div>
+
+{{#Sentence Furigana}}
+<div style='font-size: 25px;'>{{furigana:Sentence Furigana}}</div>
+{{/Sentence Furigana}}
+
+{{#Sentence Meaning}}
+<div style='font-size: 24px; color: #cbd5e1; padding-bottom:10px'>{{Sentence Meaning}}</div>
+{{/Sentence Meaning}}
+
+{{#Word Audio}}{{Word Audio}}{{/Word Audio}}
+{{#Sentence Audio}}{{Sentence Audio}}{{/Sentence Audio}}
+{{#Picture}}<br>{{Picture}}{{/Picture}}
+
+{{#Notes}}
+	<br>
+	<div style="font-size: 20px; color: #94a3b8; padding-top:12px">Note: {{Notes}}</div>
+{{/Notes}}
+
+{{#Pitch Accent Notes}}
+<div style="font-size: 20px; width: fit-content; max-width:40vw; margin: auto">
+	<details><summary>Pitch Accent Notes</summary>
+		<br>{{Pitch Accent Notes}}
+	</details>
+</div>
+{{/Pitch Accent Notes}}
+
+</div>`;
+
+async function fetchBrowserAudio(text) {
+  if (!text) return null;
+  const clean = stripHtml(text).replace(/\[[^\]]+\]/g, '').trim();
+  if (!clean) return null;
+
+  try {
+    const initRes = await fetch('https://api.soundoftext.com/sounds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        engine: 'Google',
+        data: { text: clean, voice: 'ja-JP' }
+      })
+    });
+    const initData = await initRes.json();
+    if (initData && initData.success && initData.id) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await new Promise(r => setTimeout(r, 600));
+        const statusRes = await fetch('https://api.soundoftext.com/sounds/' + initData.id);
+        const statusData = await statusRes.json();
+        if (statusData && statusData.status === 'Done' && statusData.location) {
+          const audioRes = await fetch(statusData.location);
+          const arrayBuffer = await audioRes.arrayBuffer();
+          return arrayBuffer;
+        }
+      }
+    }
+  } catch (err) {
+  }
+  return null;
+}
+
+async function exportAnkiPackage() {
+  if (parsedResult.length === 0) {
+    alert('Please parse some cards first.');
+    return;
+  }
+
+  const exportBtn = document.getElementById('exportApkgBtn');
+  const originalText = exportBtn.textContent;
+  exportBtn.textContent = 'Preparing .apkg...';
+  exportBtn.disabled = true;
+
+  try {
+    const SQL = await initSqlJs({
+      locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+    });
+    const db = new SQL.Database();
+
+    const deckName = document.getElementById('deckNameInput').value.trim() || 'Japanese IT Pathway::Vocab';
+    const tagPrefix = document.getElementById('deckTagInput').value.trim() || 'IT_Pathway';
+    const deckId = getRandomId();
+    const modelId = deckId + 1;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const nowMs = Date.now();
+
+    db.run(`CREATE TABLE col (
+      id integer primary key,
+      crt integer not null,
+      mod integer not null,
+      scm integer not null,
+      ver integer not null,
+      dty integer not null,
+      usn integer not null,
+      ls integer not null,
+      conf text not null,
+      models text not null,
+      decks text not null,
+      dconf text not null,
+      tags text not null
+    );`);
+
+    db.run(`CREATE TABLE notes (
+      id integer primary key,
+      guid text not null,
+      mid integer not null,
+      mod integer not null,
+      usn integer not null,
+      tags text not null,
+      flds text not null,
+      sfld integer not null,
+      csum integer not null,
+      flags integer not null,
+      data text not null
+    );`);
+
+    db.run(`CREATE TABLE cards (
+      id integer primary key,
+      nid integer not null,
+      did integer not null,
+      ord integer not null,
+      mod integer not null,
+      usn integer not null,
+      type integer not null,
+      queue integer not null,
+      due integer not null,
+      ivl integer not null,
+      factor integer not null,
+      reps integer not null,
+      lapses integer not null,
+      left integer not null,
+      odue integer not null,
+      odid integer not null,
+      flags integer not null,
+      data text not null
+    );`);
+
+    db.run(`CREATE TABLE revlog (
+      id integer primary key,
+      cid integer not null,
+      usn integer not null,
+      ease integer not null,
+      ivl integer not null,
+      lastIvl integer not null,
+      factor integer not null,
+      time integer not null,
+      type integer not null
+    );`);
+
+    db.run(`CREATE TABLE graves (
+      usn integer not null,
+      oid integer not null,
+      type integer not null
+    );`);
+
+    db.run(`CREATE INDEX ix_notes_usn on notes (usn);`);
+    db.run(`CREATE INDEX ix_cards_usn on cards (usn);`);
+    db.run(`CREATE INDEX ix_revlog_usn on revlog (usn);`);
+    db.run(`CREATE INDEX ix_cards_nid on cards (nid);`);
+    db.run(`CREATE INDEX ix_cards_sched on cards (did, queue, due);`);
+    db.run(`CREATE INDEX ix_revlog_cid on revlog (cid);`);
+    db.run(`CREATE INDEX ix_notes_csum on notes (csum);`);
+
+    const modelObj = {
+      css: KAISHI_CSS,
+      did: deckId,
+      flds: [
+        { font: 'Liberation Sans', media: [], name: 'Word', ord: 0, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Word Furigana', ord: 1, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Pitch Accent', ord: 2, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Word Meaning', ord: 3, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Sentence', ord: 4, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Sentence Furigana', ord: 5, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Sentence Meaning', ord: 6, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Word Audio', ord: 7, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Sentence Audio', ord: 8, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Picture', ord: 9, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Notes', ord: 10, rtl: false, size: 20, sticky: false }, 
+        { font: 'Liberation Sans', media: [], name: 'Pitch Accent Notes', ord: 11, rtl: false, size: 20, sticky: false } 
+      ],
+      id: String(modelId),
+      latexPost: '\\end{document}',
+      latexPre: '\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n',
+      latexsvg: false,
+      mod: nowSec,
+      name: 'Kaishi 1.5k (IT & Business Japanese)',
+      req: [[0, 'all', [0]]],
+      sortf: 0,
+      tags: [],
+      tmpls: [
+        {
+          afmt: KAISHI_A_FMT,
+          bafmt: '',
+          bfont: '',
+          bqfmt: '',
+          bsize: 0,
+          did: null,
+          name: 'Recognition',
+          ord: 0,
+          qfmt: KAISHI_Q_FMT
+        }
+      ],
+      type: 0,
+      usn: -1,
+      vers: []
+    };
+
+    const modelsJson = {};
+    modelsJson[String(modelId)] = modelObj;
+
+    const decksJson = {
+      '1': {
+        collapsed: false,
+        conf: 1,
+        desc: '',
+        dyn: 0,
+        extendNew: 10,
+        extendRev: 50,
+        id: 1,
+        lrnToday: [0, 0],
+        mod: nowSec,
+        name: 'Default',
+        newToday: [0, 0],
+        revToday: [0, 0],
+        timeToday: [0, 0],
+        usn: 0
+      }
+    };
+    decksJson[String(deckId)] = {
+      collapsed: false,
+      conf: 1,
+      desc: 'Kaishi 1.5k styled IT & Business Japanese flashcards',
+      dyn: 0,
+      extendNew: 0,
+      extendRev: 50,
+      id: deckId,
+      lrnToday: [0, 0],
+      mod: nowSec,
+      name: deckName,
+      newToday: [0, 0],
+      revToday: [0, 0],
+      timeToday: [0, 0],
+      usn: -1
+    };
+
+    const dconfJson = {
+      '1': {
+        autoplay: true,
+        id: 1,
+        lapse: {
+          delays: [10],
+          leechAction: 0,
+          leechFails: 8,
+          minInt: 1,
+          mult: 0
+        },
+        maxTaken: 60,
+        mod: 0,
+        name: 'Default',
+        new: {
+          bury: true,
+          delays: [1, 10],
+          initialFactor: 2500,
+          ints: [1, 4, 7],
+          order: 1,
+          perDay: 20,
+          separate: true
+        },
+        replayq: true,
+        rev: {
+          bury: true,
+          ease4: 1.3,
+          fuzz: 0.05,
+          ivlFct: 1,
+          maxIvl: 36500,
+          minSpace: 1,
+          perDay: 100
+        },
+        timer: 0,
+        usn: 0
+      }
+    };
+
+    const confJson = {
+      activeDecks: [1],
+      addToCur: true,
+      collapseTime: 1200,
+      curDeck: 1,
+      curModel: String(modelId),
+      dueCounts: true,
+      estTimes: true,
+      newBury: true,
+      newSpread: 0,
+      nextPos: 1,
+      sortBackwards: false,
+      sortType: 'noteFld',
+      timeLim: 0
+    };
+
+    const colStmt = db.prepare(`INSERT INTO col VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    colStmt.run([
+      null,
+      1411124400,
+      nowMs,
+      nowMs,
+      11,
+      0,
+      0,
+      0,
+      JSON.stringify(confJson),
+      JSON.stringify(modelsJson),
+      JSON.stringify(decksJson),
+      JSON.stringify(dconfJson),
+      '{}'
+    ]);
+    colStmt.free();
+
+    const noteStmt = db.prepare(`INSERT INTO notes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const cardStmt = db.prepare(`INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+    const includeAudio = document.getElementById('includeAudioCheckbox') ? document.getElementById('includeAudioCheckbox').checked : true;
+    const mediaMap = {};
+    const mediaFiles = {};
+    let mediaIndex = 0;
+
+    for (let i = 0; i < parsedResult.length; i++) {
+      exportBtn.textContent = includeAudio ? 
+        `Generating Audio (${i + 1}/${parsedResult.length})...` : 
+        `Processing Card (${i + 1}/${parsedResult.length})...`;
+      const item = parsedResult[i];
+      const noteId = nowMs + (i * 2);
+      const cardId = nowMs + (i * 2) + 1;
+      const guid = generateGuid();
+
+      const word = item.plain || '';
+      const wordFurigana = item.ruby ? rubyToAnkiFurigana(item.ruby) : (item.plain && item.rawSpeech && item.plain !== item.rawSpeech ? `${item.plain}[${item.rawSpeech}]` : word);
+      const pitchAccent = item.pitchAccent || '';
+      const wordMeaning = item.english || '';
+      let sentence = item.sentence || '';
+      let sentenceFurigana = item.sentenceFurigana || '';
+      const sentenceMeaning = item.sentenceEnglish || '';
+      let wordAudio = item.wordAudio || item.vocabAudio || '';
+      let sentenceAudio = item.sentenceAudio || '';
+      const picture = item.picture || item.image || '';
+      const notes = item.notes || item.def || '';
+      const pitchAccentNotes = item.pitchAccentNotes || '';
+      const tag = tagPrefix || '';
+
+      if (includeAudio) {
+        if (!wordAudio && (item.rawSpeech || word)) {
+          const audioBuf = await fetchBrowserAudio(item.rawSpeech || word);
+          if (audioBuf) {
+            const fileName = `kaishi_word_${i + 1}.mp3`;
+            mediaMap[String(mediaIndex)] = fileName;
+            mediaFiles[String(mediaIndex)] = audioBuf;
+            mediaIndex++;
+            wordAudio = `[sound:${fileName}]`;
+          }
+        }
+
+        if (!sentenceAudio && (sentence || sentenceFurigana)) {
+          const audioBuf = await fetchBrowserAudio(sentence || sentenceFurigana);
+          if (audioBuf) {
+            const fileName = `kaishi_sent_${i + 1}.mp3`;
+            mediaMap[String(mediaIndex)] = fileName;
+            mediaFiles[String(mediaIndex)] = audioBuf;
+            mediaIndex++;
+            sentenceAudio = `[sound:${fileName}]`;
+          }
+        }
+      }
+
+      if (word && sentence && !sentence.includes('<b>')) {
+        const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        sentence = sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
+      }
+
+      if (word && sentenceFurigana && !sentenceFurigana.includes('<b>')) {
+        const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        sentenceFurigana = sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
+      }
+
+      const formattedTags = tag ? ` ${tag} ` : '';
+
+      const flds = [
+        word,
+        wordFurigana,
+        pitchAccent,
+        wordMeaning,
+        sentence,
+        sentenceFurigana,
+        sentenceMeaning,
+        wordAudio,
+        sentenceAudio,
+        picture,
+        notes,
+        pitchAccentNotes
+      ].join('\x1f');
+
+      const sfld = word;
+      const csum = computeStringHash(sfld);
+
+      noteStmt.run([
+        noteId,
+        guid,
+        modelId,
+        nowSec,
+        -1,
+        formattedTags,
+        flds,
+        sfld,
+        csum,
+        0,
+        ''
+      ]);
+
+      cardStmt.run([
+        cardId,
+        noteId,
+        deckId,
+        0,
+        nowSec,
+        -1,
+        0,
+        0,
+        i + 1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        ''
+      ]);
+    }
+
+    noteStmt.free();
+    cardStmt.free();
+
+    const binaryDb = db.export();
+    db.close();
+
+    exportBtn.textContent = 'Packaging .apkg...';
+    const zip = new JSZip();
+    zip.file('collection.anki2', binaryDb);
+    zip.file('media', JSON.stringify(mediaMap));
+
+    for (const idxKey of Object.keys(mediaFiles)) {
+      zip.file(idxKey, mediaFiles[idxKey]);
+    }
+
+    const apkgBlob = await zip.generateAsync({
+      type: 'blob',
+      mimeType: 'application/apkg',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 9 }
+    });
+
+    const safeFileName = deckName.replace(/[^a-zA-Z0-9_\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf-]/g, '_') + '.apkg';
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.href = URL.createObjectURL(apkgBlob);
+    downloadAnchor.download = safeFileName;
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  } catch (err) {
+    alert('Failed to generate Anki package: ' + err.message);
+    console.error(err);
+  } finally {
+    exportBtn.textContent = originalText;
+    exportBtn.disabled = false;
+  }
+}
+
+function downloadJSON() {
+  if (parsedResult.length === 0) return;
+  const deckName = document.getElementById('deckNameInput').value.trim() || 'custom_vocab';
+  const safeFileName = deckName.replace(/[^a-zA-Z0-9_\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf-]/g, '_') + '.json';
+  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(parsedResult, null, 2));
+  const downloadAnchor = document.createElement('a');
+  downloadAnchor.setAttribute('href', dataStr);
+  downloadAnchor.setAttribute('download', safeFileName);
+  document.body.appendChild(downloadAnchor);
+  downloadAnchor.click();
+  downloadAnchor.remove();
+}
+
+function copyJSON() {
+  if (parsedResult.length === 0) return;
+  navigator.clipboard.writeText(JSON.stringify(parsedResult, null, 2))
+    .then(() => alert('JSON copied to clipboard!'))
+    .catch(() => alert('Failed to copy.'));
+}
+
+function clearInput() {
+  document.getElementById('rawInput').value = '';
+  parsedResult = [];
+  document.getElementById('previewSection').style.display = 'none';
+}
+
+function loadSampleText() {
+  document.getElementById('rawInput').value = `企業概要 [きぎょうがいよう] Company Overview
+企業の事業内容や所在地、資本金などをまとめた基本情報。
+例文: 取引先の企業概要を確認して信用調査を行う。
+
+要件定義 [ようけんていぎ] Requirements Definition
+システム開発でユーザーが必要とする機能や性能を明確にする工程。
+例: クライアントと打ち合わせをして要件定義書を作成する。
+
+クラウド Cloud Computing
+インターネット経由でサーバーやストレージなどのコンピューター資源を提供する仕組み。
+例文: 社内システムをクラウド環境に移行する。
+
+暗号化 [あんごうか] Encryption
+第三者にデータを盗み見られないよう、特定の規則に従ってデータを変換すること。
+例: 通信データをSSLで暗号化する。`;
+  processRawText();
+}
+</script>
+</body>
+</html>
