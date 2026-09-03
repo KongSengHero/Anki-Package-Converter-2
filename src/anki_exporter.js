@@ -1,9 +1,3 @@
-const crypto = require('crypto');
-const https = require('https');
-const initSqlJs = require('sql.js');
-const JSZip = require('jszip');
-const { alignWordFurigana, alignSentenceFurigana, rubyToAnkiFurigana, stripHtml } = require('./src/parser.js');
-
 const GUID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-./:;<=>?@[]^_`{|}~';
 
 function generateGuid() {
@@ -15,28 +9,17 @@ function generateGuid() {
   return guid;
 }
   
-function computeChecksum(str) {
-  const hash = crypto.createHash('sha1').update(str, 'utf8').digest('hex');
-  return parseInt(hash.substring(0, 8), 16);
+function computeStringHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
 }
   
 function getRandomId() {
   return 1000000000 + Math.floor(Math.random() * 1000000000);
-}
-  
-function fetchTtsAudio(rawText) {
-  return new Promise((resolve) => {
-    if (!rawText) return resolve(null);
-    const clean = stripHtml(rawText).replace(/\[[^\]]+\]/g, '').trim();
-    if (!clean) return resolve(null);
-    const url = 'https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&ttsspeed=1&q=' + encodeURIComponent(clean);
-    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
-      if (res.statusCode !== 200) return resolve(null);
-      const data = [];
-      res.on('data', chunk => data.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(data)));
-    }).on('error', () => resolve(null));
-  });
 }
  
 const KAISHI_CSS = `.card {
@@ -138,19 +121,48 @@ rt { display: ruby-text !important; font-size: 0.5em !important; }
 	
 </div>`;
 	
-function escapeWordFuriganaRegex(furi) {
-  return (furi || '').trim().split(/\s+/).map(function(p) {
-    return p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }).join('\\s*');
+async function fetchBrowserAudio(text) {
+  if (!text) return null;
+  const clean = stripHtml(text).replace(/\[[^\]]+\]/g, '').trim();
+  if (!clean) return null;
+  
+  try {
+    const initRes = await fetch('https://api.soundoftext.com/sounds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        engine: 'Google',
+        data: { text: clean, voice: 'ja-JP' }
+      })
+    });
+    const initData = await initRes.json();
+    if (initData && initData.success && initData.id) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await new Promise(r => setTimeout(r, 600));
+        const statusRes = await fetch('https://api.soundoftext.com/sounds/' + initData.id);
+        const statusData = await statusRes.json();
+        if (statusData && statusData.status === 'Done' && statusData.location) {
+          const audioRes = await fetch(statusData.location);
+          const arrayBuffer = await audioRes.arrayBuffer();
+          return arrayBuffer;
+        }
+      }
+    }
+  } catch (err) {
+  }
+  return null;
 }
   
-async function exportToAnkiApkg(cardsData, options = {}) {
-  const SQL = await initSqlJs();
+async function generateAnkiApkg(cards, options = {}) {
+  const SQL = await initSqlJs({
+    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+  });
   const db = new SQL.Database();
   
   const deckName = options.deckName || 'Kaishi 1.5k Deck';
   const tagPrefix = options.tagPrefix || '';
-  const includeAudio = options.includeAudio !== false;
+  const withAudio = options.withAudio !== false;
+  const onProgress = options.onProgress || null;
   
   const nowMs = Date.now();
   const nowSec = Math.floor(nowMs / 1000);
@@ -397,8 +409,11 @@ async function exportToAnkiApkg(cardsData, options = {}) {
   const mediaFiles = {};
   let mediaIndex = 0;
   
-  for (let i = 0; i < cardsData.length; i++) {
-    const item = cardsData[i];
+  for (let i = 0; i < cards.length; i++) {
+    if (onProgress) {
+      onProgress(i + 1, cards.length, withAudio ? `Generating audio (${i + 1}/${cards.length})...` : `Processing card (${i + 1}/${cards.length})...`);
+    }
+    const item = cards[i];
     const noteId = nowMs + (i * 2);
     const cardId = nowMs + (i * 2) + 1;
     const guid = generateGuid();
@@ -406,10 +421,14 @@ async function exportToAnkiApkg(cardsData, options = {}) {
     const word = item.plain || item.word || '';
     const wordReading = item.rawSpeech || item.reading || item.kana || '';
     const wordMeaning = item.english || item.meaning || item.wordMeaning || '';
-    const wordFurigana = alignWordFurigana(word, wordReading);
+    const wordFurigana = typeof alignWordFurigana !== 'undefined' ? 
+      alignWordFurigana(word, wordReading) : 
+      (item.wordFurigana || (item.ruby ? rubyToAnkiFurigana(item.ruby) : word));
     let sentence = item.sentence || item.sentenceKanji || '';
     const sentenceMeaning = item.sentenceMeaning || item.sentenceEnglish || '';
-    let sentenceFurigana = alignSentenceFurigana(item.sentenceFurigana || sentence || '');
+    let sentenceFurigana = typeof alignSentenceFurigana !== 'undefined' ? 
+      alignSentenceFurigana(item.sentenceFurigana || sentence || '') : 
+      (item.sentenceFurigana || sentence || '');
     let wordAudio = item.wordAudio || item.vocabAudio || '';
     let sentenceAudio = item.sentenceAudio || '';
     const notes = item.notes || item.def || '';
@@ -419,9 +438,9 @@ async function exportToAnkiApkg(cardsData, options = {}) {
     const picture = item.picture || item.image || '';
     const tag = tagPrefix || '';
     
-    if (includeAudio) {
+    if (withAudio) {
       if (!wordAudio && wordReading) {
-        const audioBuf = await fetchTtsAudio(wordReading);
+        const audioBuf = await fetchBrowserAudio(wordReading);
         if (audioBuf) {
           const fileName = `kaishi_word_${i + 1}.mp3`;
           mediaMap[String(mediaIndex)] = fileName;
@@ -432,7 +451,7 @@ async function exportToAnkiApkg(cardsData, options = {}) {
       }
       
       if (!sentenceAudio && (sentence || sentenceFurigana)) {
-        const audioBuf = await fetchTtsAudio(sentence || sentenceFurigana);
+        const audioBuf = await fetchBrowserAudio(sentence || sentenceFurigana);
         if (audioBuf) {
           const fileName = `kaishi_sent_${i + 1}.mp3`;
           mediaMap[String(mediaIndex)] = fileName;
@@ -449,7 +468,9 @@ async function exportToAnkiApkg(cardsData, options = {}) {
     }
     
     if (word && sentenceFurigana && !sentenceFurigana.includes('<b>')) {
-      const pattern = escapeWordFuriganaRegex(wordFurigana);
+      const pattern = typeof escapeWordFuriganaRegex !== 'undefined' ? 
+        escapeWordFuriganaRegex(wordFurigana) : 
+        wordFurigana.trim().split(/\s+/).map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
       const escapedPlain = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       if (new RegExp(pattern).test(sentenceFurigana)) {
         sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${pattern})`, 'g'), '<b>$1</b>');
@@ -478,7 +499,7 @@ async function exportToAnkiApkg(cardsData, options = {}) {
     ].join('\x1f');
     
     const sfld = word;
-    const csum = computeChecksum(sfld);
+    const csum = computeStringHash(sfld);
     
     noteStmt.run([
       noteId,
@@ -530,20 +551,22 @@ async function exportToAnkiApkg(cardsData, options = {}) {
     zip.file(idxKey, mediaFiles[idxKey]);
   }
   
-  const apkgBuffer = await zip.generateAsync({
-    type: 'nodebuffer',
+  const apkgBlob = await zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/apkg',
     compression: 'DEFLATE',
     compressionOptions: { level: 9 }
   });
   
-  return apkgBuffer;
+  return apkgBlob;
 }
   
-module.exports = {
-  exportToAnkiApkg,
-  createAnkiPackage: exportToAnkiApkg,
-  KAISHI_CSS,
-  KAISHI_Q_FMT,
-  KAISHI_A_FMT
-};
+if (typeof module !== 'undefined') {
+  module.exports = {
+    generateAnkiApkg,
+    KAISHI_CSS,
+    KAISHI_Q_FMT,
+    KAISHI_A_FMT
+  };
+}
   
