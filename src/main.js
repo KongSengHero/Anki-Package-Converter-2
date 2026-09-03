@@ -6,7 +6,8 @@ let isGenerating = false;
 function loadAiConfig() {
   const provider = localStorage.getItem('kaishi_gen_provider') || 'zero-key';
   const apiKey = localStorage.getItem('kaishi_gen_key') || '';
-  const model = localStorage.getItem('kaishi_gen_model') || 'gemini-3.5-flash';
+  let model = localStorage.getItem('kaishi_gen_model') || 'gemini-3.8-flash';
+  if (model === 'gemini-3.5-flash') model = 'gemini-3.8-flash';
   
   const providerEl = document.getElementById('genProviderSelect');
   const apiKeyEl = document.getElementById('apiKeyInput');
@@ -17,6 +18,7 @@ function loadAiConfig() {
   if (modelEl) modelEl.value = model;
   
   handleProviderChange();
+  updateAiStatusBadge();
 }
   
 function saveAiConfig() {
@@ -27,6 +29,31 @@ function saveAiConfig() {
   localStorage.setItem('kaishi_gen_provider', provider);
   localStorage.setItem('kaishi_gen_key', apiKey);
   localStorage.setItem('kaishi_gen_model', model);
+}
+  
+function updateAiStatusBadge() {
+  const provider = document.getElementById('genProviderSelect')?.value || 'zero-key';
+  const model = document.getElementById('apiModelSelect')?.value || 'gemini-3.8-flash';
+  const badge = document.getElementById('aiStatusBadge');
+  if (!badge) return;
+  if (provider === 'gemini') {
+    badge.textContent = `✨ ${model}`;
+  } else if (provider === 'openai') {
+    badge.textContent = `✨ ${model}`;
+  } else {
+    badge.textContent = '⚡ Zero-Key (DB)';
+  }
+}
+  
+function openAiModal() {
+  const modal = document.getElementById('aiSettingsModal');
+  if (modal) modal.style.display = 'flex';
+}
+  
+function closeAiModal() {
+  const modal = document.getElementById('aiSettingsModal');
+  if (modal) modal.style.display = 'none';
+  updateAiStatusBadge();
 }
   
 function handleProviderChange() {
@@ -42,12 +69,13 @@ function handleProviderChange() {
     modelGroup.style.display = 'flex';
     const modelEl = document.getElementById('apiModelSelect');
     if (provider === 'gemini') {
-      if (!modelEl.value.startsWith('gemini')) modelEl.value = 'gemini-3.5-flash';
+      if (!modelEl.value.startsWith('gemini')) modelEl.value = 'gemini-3.8-flash';
     } else if (provider === 'openai') {
       modelEl.value = 'gpt-4o-mini';
     }
   }
   saveAiConfig();
+  updateAiStatusBadge();
 }
   
 function playAudio(rawText) {
@@ -115,6 +143,7 @@ function handleJsonImport(event) {
       document.getElementById('deckNameInput').value = `Japanese IT Pathway::${formattedTitle}`;
       document.getElementById('deckTagInput').value = fileName;
       document.getElementById('rawInput').value = content;
+      updateInputStats();
       
       parsedResult = parseInputText(content);
       currentSimIdx = 0;
@@ -399,6 +428,7 @@ function clearInput() {
   document.getElementById('rawInput').value = '';
   parsedResult = [];
   document.getElementById('previewSection').style.display = 'none';
+  updateInputStats();
 }
   
 function loadSampleText() {
@@ -413,10 +443,63 @@ function loadSampleText() {
   
 暗号化 [あんごうか] Encryption
 例: 通信データをSSLで暗号化する。`;
+  updateInputStats();
   processRawText();
+}
+  
+function toggleApiKeyVisibility() {
+  const input = document.getElementById('apiKeyInput');
+  const btn = document.getElementById('toggleApiKeyBtn');
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (btn) btn.textContent = '🔒 Hide';
+  } else {
+    input.type = 'password';
+    if (btn) btn.textContent = '👁️ Show';
+  }
+}
+  
+function updateInputStats() {
+  const raw = document.getElementById('rawInput')?.value || '';
+  const statEl = document.getElementById('inputStatsPill');
+  if (!statEl) return;
+  const lines = raw ? raw.split('\n').filter(l => l.trim().length > 0).length : 0;
+  statEl.textContent = `${lines} ${lines === 1 ? 'line' : 'lines'}`;
+}
+  
+async function handleUnifiedGenerate() {
+  if (parsedResult.length === 0) {
+    processRawText();
+  }
+  if (parsedResult.length === 0) return;
+  
+  const needsGen = parsedResult.some(c => !c.sentence || !c.sentenceEnglish);
+  if (!needsGen) {
+    const confirmRegen = confirm('All cards already have example sentences. Do you want to regenerate all of them?');
+    if (!confirmRegen) return;
+    await runBatchGeneration(true);
+  } else {
+    await runBatchGeneration(false);
+  }
 }
   
 window.addEventListener('DOMContentLoaded', () => {
   loadAiConfig();
+  updateInputStats();
+  const rawEl = document.getElementById('rawInput');
+  if (rawEl) {
+    rawEl.addEventListener('input', updateInputStats);
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAiModal();
+  });
+  const modal = document.getElementById('aiSettingsModal');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeAiModal();
+    });
+  }
 });
+
   

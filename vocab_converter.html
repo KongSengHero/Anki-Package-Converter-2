@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vocabulary Raw Text to Anki &amp; JSON Converter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <link rel="stylesheet" href="src/converter.css" />
@@ -12,63 +15,52 @@
 
 <div class="container">
   <header>
-    <div>
-      <h1>Vocabulary Text to Anki &amp; JSON Converter</h1>
-      <p class="subtitle">Parse raw Japanese + English notes into official Kaishi 1.5k Anki Packages (.apkg) &amp; JSON decks.</p>
+    <div class="brand-wrapper">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 6C4 4.89543 4.89543 4 6 4H18C19.1046 4 20 4.89543 20 6V18C20 19.1046 19.1046 20 18 20H6C4.89543 20 4 19.1046 4 18V6Z" stroke="white" stroke-width="2" />
+          <path d="M8 9H16M8 12H14M8 15H11" stroke="white" stroke-width="2" stroke-linecap="round" />
+          <circle cx="16" cy="15" r="2" fill="white" />
+        </svg>
+      </div>
+      <div>
+        <h1>Vocabulary to Anki Studio</h1>
+        <p class="subtitle">Convert raw Japanese notes into official Kaishi 1.5k Anki Packages (.apkg) &amp; JSON decks.</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn-ai-settings" onclick="openAiModal()" title="Configure AI engine, model, and API key">
+        <span class="ai-badge-dot"></span>
+        <span id="aiStatusBadge">⚡ Zero-Key (DB)</span>
+        <span class="gear-icon">⚙️</span>
+      </button>
     </div>
   </header>
 
   <div class="card">
     <div class="settings-row">
       <div class="field-group">
-        <label class="field-label" for="deckNameInput">Anki Deck Name</label>
+        <label class="field-label" for="deckNameInput">
+          <span>Anki Deck Name</span>
+          <span class="label-sub">Hierarchy with ::</span>
+        </label>
         <input type="text" id="deckNameInput" value="Japanese IT Pathway::Vocab" placeholder="e.g. Japanese IT Pathway::Step 2 Vocab 1" />
       </div>
       <div class="field-group">
-        <label class="field-label" for="deckTagInput">Card Tag</label>
+        <label class="field-label" for="deckTagInput">
+          <span>Card Tag</span>
+          <span class="label-sub">Context Tag</span>
+        </label>
         <input type="text" id="deckTagInput" value="IT_Pathway" placeholder="e.g. IT_Pathway" />
       </div>
     </div>
 
-    <div class="generator-panel">
-      <div class="generator-header">
-        <div class="generator-title">
-          <span>✨ Auto Example Sentence &amp; Translation Generator</span>
-        </div>
-        <span style="font-size: 0.8rem; color: #94a3b8;">Kaishi 1.5k: Word, Sentence &amp; Translations</span>
+    <div class="field-group">
+      <div class="textarea-header">
+        <label class="field-label" for="rawInput">Raw Vocabulary Notes or JSON</label>
+        <span class="badge" id="inputStatsPill">0 lines</span>
       </div>
-      <div class="generator-options">
-        <div class="field-group">
-          <label class="field-label" for="genProviderSelect">Generation Engine</label>
-          <select id="genProviderSelect" onchange="handleProviderChange()">
-            <option value="zero-key">Zero-API-Key (Auto-Translate &amp; Native DB)</option>
-            <option value="gemini">Google Gemini AI (Custom Key)</option>
-            <option value="openai">OpenAI / Compatible (Custom Key)</option>
-          </select>
-        </div>
-        <div class="field-group" id="apiKeyGroup" style="display: none;">
-          <label class="field-label" for="apiKeyInput">API Key</label>
-          <input type="text" id="apiKeyInput" placeholder="Enter API Key" onchange="saveAiConfig()" />
-        </div>
-        <div class="field-group" id="apiModelGroup" style="display: none;">
-          <label class="field-label" for="apiModelSelect">Model</label>
-          <select id="apiModelSelect" onchange="saveAiConfig()">
-            <option value="gemini-3.5-flash">gemini-3.5-flash</option>
-            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-            <option value="gemini-1.5-flash">gemini-1.5-flash</option>
-            <option value="gpt-4o-mini">gpt-4o-mini</option>
-          </select>
-        </div>
-      </div>
-      <div class="progress-bar-container" id="progressBarContainer">
-        <div class="progress-bar">
-          <div class="progress-fill" id="progressFill"></div>
-        </div>
-        <div class="progress-text" id="progressText">Generating sentences...</div>
-      </div>
-    </div>
-
-    <textarea id="rawInput" placeholder="Paste raw notes or JSON array here... Examples:
+      <textarea id="rawInput" placeholder="Paste raw notes or JSON array here... Examples:
 
 企業概要 [きぎょうがいよう] Company Overview
 例文: 取引先の企業概要を確認して信用調査を行う。
@@ -81,45 +73,52 @@
 
 暗号化 [あんごうか] Encryption
 例: 通信データをSSLで暗号化する。"></textarea>
+    </div>
 
     <div class="btn-group">
-      <button onclick="processRawText()">Parse &amp; Preview</button>
-      <button class="secondary" id="autoGenBtn" onclick="runBatchGeneration(false)">✨ Auto-Generate Sentences</button>
-      <label class="btn secondary" style="cursor: pointer;">
-        Import JSON File
+      <button class="btn-primary" onclick="processRawText()">⚡ Parse &amp; Preview</button>
+      <label class="btn btn-secondary" style="cursor: pointer;">
+        📁 Import JSON
         <input type="file" id="jsonFileInput" accept=".json" style="display: none;" onchange="handleJsonImport(event)" />
       </label>
-      <button class="secondary" onclick="loadSampleText()">Load Sample Notes</button>
-      <button class="secondary" onclick="clearInput()">Clear</button>
+      <button class="btn-secondary" onclick="loadSampleText()">📄 Sample</button>
+      <button class="btn-ghost-danger" onclick="clearInput()">🗑️ Clear</button>
+    </div>
+  </div>
+
+  <div class="progress-bar-container" id="progressBarContainer">
+    <div class="progress-text" id="progressText">Generating sentences...</div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressFill"></div>
     </div>
   </div>
 
   <div class="card preview-section" id="previewSection">
     <div class="preview-header">
-      <h2 style="font-size: 1.2rem; font-weight: 700; color: #fff;">
-        Parsed Preview (<span id="cardCount">0 cards</span>)
+      <h2 class="preview-heading">
+        Parsed Cards (<span id="cardCount" style="color: var(--accent);">0 cards</span>)
       </h2>
       <div class="btn-group">
-        <button class="secondary" onclick="runBatchGeneration(true)">✨ Regenerate All Sentences</button>
-        <button class="export-apkg" id="exportApkgBtn" onclick="exportAnki(true)">Download with Audio (.apkg)</button>
-        <button class="secondary" id="exportNoAudioBtn" onclick="exportAnki(false)">Download Without Audio (.apkg)</button>
-        <button class="success" onclick="downloadJSON()">Download JSON</button>
-        <button class="secondary" onclick="copyJSON()">Copy JSON</button>
+        <button class="btn-ai" onclick="handleUnifiedGenerate()">✨ Generate Sentences</button>
+        <button class="btn-export" id="exportApkgBtn" onclick="exportAnki(true)">📦 Export .apkg</button>
+        <button class="btn-secondary" id="exportNoAudioBtn" onclick="exportAnki(false)">No Audio .apkg</button>
+        <button class="btn-secondary" onclick="downloadJSON()">JSON</button>
+        <button class="btn-ghost" onclick="copyJSON()">Copy</button>
       </div>
     </div>
 
     <div class="preview-tabs">
-      <button class="tab-btn active" id="tabBtnKaishi" onclick="switchTab('kaishi')">Kaishi 1.5k Preview</button>
-      <button class="tab-btn" id="tabBtnList" onclick="switchTab('list')">Card List</button>
+      <button class="tab-btn active" id="tabBtnKaishi" onclick="switchTab('kaishi')">🎴 Kaishi 1.5k Simulator</button>
+      <button class="tab-btn" id="tabBtnList" onclick="switchTab('list')">📋 Card List</button>
     </div>
 
     <div class="tab-content active" id="tabKaishi">
       <div class="kaishi-simulator">
         <div class="sim-controls">
-          <button class="secondary" onclick="prevSimCard()">Prev</button>
-          <span id="simIndex" style="font-size: 0.9rem; font-weight: 700; color: var(--text-sub);">Card 1 / 1</span>
-          <button class="secondary" onclick="nextSimCard()">Next</button>
-          <button class="secondary" onclick="toggleSimAnswer()" id="simToggleBtn">Flip (Show Back)</button>
+          <button class="btn-secondary" onclick="prevSimCard()">◀ Prev</button>
+          <span id="simIndex" class="sim-index-text">Card 1 / 1</span>
+          <button class="btn-secondary" onclick="nextSimCard()">Next ▶</button>
+          <button class="btn-primary" onclick="toggleSimAnswer()" id="simToggleBtn">Flip (Show Back)</button>
         </div>
 
         <div class="sim-card" id="simCard"></div>
@@ -128,6 +127,54 @@
 
     <div class="tab-content" id="tabList">
       <div class="card-list" id="cardList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="aiSettingsModal" style="display: none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span>✨</span>
+        <h3>AI Sentence Generator Settings</h3>
+      </div>
+      <button type="button" class="modal-close" onclick="closeAiModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label" for="genProviderSelect">Generation Engine</label>
+        <select id="genProviderSelect" onchange="handleProviderChange()">
+          <option value="zero-key">Zero-API-Key (Auto-Translate &amp; Native DB)</option>
+          <option value="gemini">Google Gemini AI (Custom Key)</option>
+          <option value="openai">OpenAI / Compatible (Custom Key)</option>
+        </select>
+      </div>
+
+      <div class="field-group" id="apiKeyGroup" style="display: none;">
+        <label class="field-label" for="apiKeyInput">API Key</label>
+        <div class="input-wrapper">
+          <input type="password" id="apiKeyInput" placeholder="Enter API Key" onchange="saveAiConfig()" />
+          <button type="button" class="toggle-pwd-btn" id="toggleApiKeyBtn" onclick="toggleApiKeyVisibility()">👁️ Show</button>
+        </div>
+      </div>
+
+      <div class="field-group" id="apiModelGroup" style="display: none;">
+        <label class="field-label" for="apiModelSelect">Model Selection</label>
+        <select id="apiModelSelect" onchange="saveAiConfig()">
+          <option value="gemini-3.8-flash">gemini-3.8-flash (Latest Flash)</option>
+          <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+          <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+        </select>
+      </div>
+
+      <div class="modal-hint">
+        Example sentences are generated specifically tailored to your Card Tag context, with individual kanji furigana brackets according to the Kaishi 1.5k Anki note format.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-primary" onclick="closeAiModal()">Done</button>
     </div>
   </div>
 </div>

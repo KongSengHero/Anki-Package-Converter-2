@@ -47,7 +47,7 @@ async function fetchTatoebaSentence(word) {
 }
   
 async function callGeminiApi(apiKey, model, promptText) {
-  const cleanModel = (model || 'gemini-3.5-flash').replace(/^models\//, '');
+  const cleanModel = (model || 'gemini-3.8-flash').replace(/^models\//, '');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
   const payload = {
     contents: [
