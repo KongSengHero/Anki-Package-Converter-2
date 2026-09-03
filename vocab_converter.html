@@ -79,12 +79,33 @@
       <button class="btn-primary" onclick="processRawText()">⚡ Parse &amp; Preview</button>
       <button class="btn-ai" id="aiFormatBtn" onclick="handleAiFormatNotes()">✨ AI Format Notes</button>
       <label class="btn btn-secondary" style="cursor: pointer;">
-        📁 Import JSON
-        <input type="file" id="jsonFileInput" accept=".json" style="display: none;" onchange="handleJsonImport(event)" />
+        📁 Import Deck (.apkg / .json)
+        <input type="file" id="deckFileInput" accept=".apkg,.json" multiple style="display: none;" onchange="handleFileImport(event)" />
       </label>
       <button class="btn-secondary" onclick="loadSampleText()">📄 Sample</button>
       <button class="btn-ghost-danger" onclick="clearInput()">🗑️ Clear</button>
     </div>
+  </div>
+
+  <div class="card batch-section" id="batchSection" style="display: none;">
+    <div class="preview-header">
+      <div>
+        <h2 class="preview-heading">
+          📚 Batch Deck Manager (<span id="batchDeckCount" style="color: var(--accent);">0 decks</span>, <span id="batchTotalCards" style="color: var(--accent);">0 cards</span>)
+        </h2>
+        <p class="subtitle" style="margin-top: 4px; font-size: 0.85rem;">Manage, preview, and export all imported decks in one click.</p>
+      </div>
+      <div class="btn-group">
+        <label class="audio-toggle-label" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+          <input type="checkbox" id="batchAudioToggle" style="cursor: pointer;" />
+          <span>🔊 Include Audio</span>
+        </label>
+        <button class="btn-export" id="batchMasterBtn" onclick="exportBatchMasterApkg()">📦 Master .apkg (All Decks)</button>
+        <button class="btn-secondary" id="batchZipBtn" onclick="exportBatchZip()">🗂️ All as ZIP (.apkgs)</button>
+        <button class="btn-ghost-danger" onclick="clearBatch()">✕ Close</button>
+      </div>
+    </div>
+    <div class="batch-deck-list" id="batchDeckList"></div>
   </div>
 
   <div class="progress-bar-container" id="progressBarContainer">

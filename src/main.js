@@ -130,31 +130,326 @@ function processRawText() {
   renderPreview();
 }
   
-function handleJsonImport(event) {
-  const file = event.target.files && event.target.files[0];
-  if (!file) return;
+let batchDeckList = [];
   
-  const reader = new FileReader();
-  reader.onload = function(e) {
+async function parseSingleFile(file) {
+  const isApkg = /\.apkg$/i.test(file.name);
+  if (isApkg) {
+    const res = await parseAnkiApkg(file);
+    return {
+      fileName: file.name,
+      deckName: res.deckName || 'Japanese IT Pathway::Vocab',
+      tag: res.tag || 'IT & Business',
+      cards: (res.cards || []).map((c, idx) => normalizeCard(c, idx))
+    };
+  } else {
+    const content = await file.text();
+    let parsed = null;
     try {
-      const content = e.target.result;
-      const fileName = file.name.replace(/\.json$/i, '');
-      const formattedTitle = fileName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      document.getElementById('deckNameInput').value = `Japanese IT Pathway::${formattedTitle}`;
-      document.getElementById('deckTagInput').value = fileName;
-      document.getElementById('rawInput').value = content;
-      updateInputStats();
+      parsed = JSON.parse(content);
+    } catch (jsonErr) {
+    }
+    
+    let deckName = '';
+    let tag = '';
+    let cards = [];
+    
+    if (parsed && !Array.isArray(parsed) && parsed.cards) {
+      deckName = parsed.deckName || '';
+      tag = parsed.tag || '';
+      cards = parsed.cards;
+    } else if (Array.isArray(parsed)) {
+      cards = parsed;
+    }
+    
+    const fileName = file.name.replace(/\.json$/i, '');
+    if (!deckName) {
+      const cleanName = fileName
+        .replace(/^Japanese[_\s]+IT[_\s]+Pathway_{1,2}/i, '')
+        .replace(/_{2,}/g, '::')
+        .replace(/_/g, ' ')
+        .trim();
+      deckName = cleanName ? `Japanese IT Pathway::${cleanName}` : 'Japanese IT Pathway::Vocab';
+      tag = cleanName || 'IT & Business';
+    }
+    
+    if (!tag) {
+      const parts = deckName.split('::');
+      tag = parts[parts.length - 1].trim();
+    }
+    
+    if (cards.length === 0) {
+      cards = parseInputText(content);
+    } else {
+      cards = cards.map((c, idx) => normalizeCard(c, idx));
+    }
+    
+    return {
+      fileName: file.name,
+      deckName,
+      tag,
+      cards
+    };
+  }
+}
+  
+async function handleFileImport(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  
+  if (files.length === 1) {
+    const file = files[0];
+    try {
+      const res = await parseSingleFile(file);
+      document.getElementById('deckNameInput').value = res.deckName;
+      document.getElementById('deckTagInput').value = res.tag;
       
-      parsedResult = parseInputText(content);
+      document.getElementById('rawInput').value = res.cards.map(c => {
+        let str = `${c.plain} [${c.rawSpeech || c.plain}] ${c.english}`;
+        if (c.sentence) str += `\n例文: ${c.sentence}`;
+        if (c.sentenceEnglish) str += `\n（${c.sentenceEnglish}）`;
+        return str;
+      }).join('\n\n');
+      
+      updateInputStats();
+      parsedResult = res.cards;
       currentSimIdx = 0;
       simShowBack = false;
       renderPreview();
     } catch (err) {
-      alert('Failed to parse JSON file: ' + err.message);
+      alert('Failed to import file: ' + err.message);
     }
-  };
-  reader.readAsText(file, 'utf-8');
+  } else {
+    const progressContainer = document.getElementById('progressBarContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    progressContainer.style.display = 'flex';
+    progressFill.style.width = '0%';
+    progressText.textContent = `Importing ${files.length} decks...`;
+    
+    batchDeckList = [];
+    let errCount = 0;
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      progressFill.style.width = `${Math.round(((i + 1) / files.length) * 100)}%`;
+      progressText.textContent = `Reading (${i + 1}/${files.length}): ${file.name}...`;
+      try {
+        const deckObj = await parseSingleFile(file);
+        if (deckObj && deckObj.cards && deckObj.cards.length > 0) {
+          batchDeckList.push(deckObj);
+        }
+      } catch (err) {
+        errCount++;
+      }
+    }
+    
+    setTimeout(() => {
+      progressContainer.style.display = 'none';
+    }, 500);
+    
+    if (batchDeckList.length > 0) {
+      renderBatchHub();
+      loadDeckFromBatch(0);
+    }
+    if (errCount > 0) {
+      alert(`Imported ${batchDeckList.length} decks (${errCount} files could not be parsed).`);
+    }
+  }
   event.target.value = '';
+}
+  
+const handleJsonImport = handleFileImport;
+  
+function renderBatchHub() {
+  const batchSection = document.getElementById('batchSection');
+  const countEl = document.getElementById('batchDeckCount');
+  const totalCardsEl = document.getElementById('batchTotalCards');
+  const listEl = document.getElementById('batchDeckList');
+  
+  if (!batchSection || batchDeckList.length === 0) {
+    if (batchSection) batchSection.style.display = 'none';
+    return;
+  }
+  
+  let totalCards = 0;
+  batchDeckList.forEach(d => { totalCards += (d.cards ? d.cards.length : 0); });
+  
+  countEl.textContent = `${batchDeckList.length} ${batchDeckList.length === 1 ? 'deck' : 'decks'}`;
+  totalCardsEl.textContent = `${totalCards} ${totalCards === 1 ? 'card' : 'cards'}`;
+  batchSection.style.display = 'block';
+  
+  listEl.innerHTML = batchDeckList.map((d, idx) => {
+    const cardCount = d.cards ? d.cards.length : 0;
+    const sentCount = d.cards ? d.cards.filter(c => c.sentence).length : 0;
+    return `
+      <div class="batch-deck-item">
+        <div class="batch-deck-info">
+          <div class="batch-deck-title">${d.deckName}</div>
+          <div class="batch-deck-meta">
+            <span class="batch-deck-badge">${d.tag}</span>
+            <span>${cardCount} cards</span>
+            <span>•</span>
+            <span style="color: ${sentCount === cardCount ? '#34d399' : '#f59e0b'};">${sentCount}/${cardCount} sentences</span>
+          </div>
+        </div>
+        <div class="batch-deck-actions">
+          <button class="btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="loadDeckFromBatch(${idx})">👁️ Preview</button>
+          <button class="btn-ghost-danger" style="padding: 6px 10px; font-size: 0.8rem;" onclick="removeDeckFromBatch(${idx})">✕</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+  
+function loadDeckFromBatch(idx) {
+  if (idx < 0 || idx >= batchDeckList.length) return;
+  const d = batchDeckList[idx];
+  document.getElementById('deckNameInput').value = d.deckName;
+  document.getElementById('deckTagInput').value = d.tag;
+  
+  document.getElementById('rawInput').value = (d.cards || []).map(c => {
+    let str = `${c.plain} [${c.rawSpeech || c.plain}] ${c.english}`;
+    if (c.sentence) str += `\n例文: ${c.sentence}`;
+    if (c.sentenceEnglish) str += `\n（${c.sentenceEnglish}）`;
+    return str;
+  }).join('\n\n');
+  
+  updateInputStats();
+  parsedResult = d.cards || [];
+  currentSimIdx = 0;
+  simShowBack = false;
+  renderPreview();
+}
+  
+function removeDeckFromBatch(idx) {
+  if (idx < 0 || idx >= batchDeckList.length) return;
+  batchDeckList.splice(idx, 1);
+  if (batchDeckList.length === 0) {
+    clearBatch();
+  } else {
+    renderBatchHub();
+  }
+}
+  
+function clearBatch() {
+  batchDeckList = [];
+  const batchSection = document.getElementById('batchSection');
+  if (batchSection) batchSection.style.display = 'none';
+}
+  
+async function exportBatchMasterApkg() {
+  if (batchDeckList.length === 0) {
+    alert('No decks in batch.');
+    return;
+  }
+  
+  const withAudio = document.getElementById('batchAudioToggle')?.checked || false;
+  const progressContainer = document.getElementById('progressBarContainer');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const btn = document.getElementById('batchMasterBtn');
+  const origText = btn ? btn.textContent : '';
+  
+  if (btn) {
+    btn.textContent = 'Packaging...';
+    btn.disabled = true;
+  }
+  progressContainer.style.display = 'flex';
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Building Master Anki Package...';
+  
+  try {
+    const apkgBlob = await generateMultiDeckApkg(batchDeckList, {
+      withAudio,
+      onProgress: (cur, tot, msg) => {
+        progressFill.style.width = `${Math.round((cur / tot) * 100)}%`;
+        progressText.textContent = msg;
+      }
+    });
+    
+    let baseName = 'Japanese_IT_Pathway_Master';
+    if (batchDeckList[0] && batchDeckList[0].deckName) {
+      const topDeck = batchDeckList[0].deckName.split('::')[0];
+      if (topDeck) {
+        baseName = topDeck.replace(/[^a-zA-Z0-9_\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf-]/g, '_') + '_Master';
+      }
+    }
+    
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.href = URL.createObjectURL(apkgBlob);
+    downloadAnchor.download = `${baseName}.apkg`;
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  } catch (err) {
+    alert('Failed to generate Master .apkg: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.textContent = origText;
+      btn.disabled = false;
+    }
+    setTimeout(() => {
+      progressContainer.style.display = 'none';
+    }, 1500);
+  }
+}
+  
+async function exportBatchZip() {
+  if (batchDeckList.length === 0) {
+    alert('No decks in batch.');
+    return;
+  }
+  
+  const withAudio = document.getElementById('batchAudioToggle')?.checked || false;
+  const progressContainer = document.getElementById('progressBarContainer');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const btn = document.getElementById('batchZipBtn');
+  const origText = btn ? btn.textContent : '';
+  
+  if (btn) {
+    btn.textContent = 'Zipping...';
+    btn.disabled = true;
+  }
+  progressContainer.style.display = 'flex';
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Generating individual .apkg files...';
+  
+  try {
+    const zipBlob = await generateApkgZipBundle(batchDeckList, {
+      withAudio,
+      onProgress: (cur, tot, msg) => {
+        progressFill.style.width = `${Math.round((cur / tot) * 100)}%`;
+        progressText.textContent = msg;
+      }
+    });
+    
+    let baseName = 'Japanese_IT_Pathway_Decks';
+    if (batchDeckList[0] && batchDeckList[0].deckName) {
+      const topDeck = batchDeckList[0].deckName.split('::')[0];
+      if (topDeck) {
+        baseName = topDeck.replace(/[^a-zA-Z0-9_\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf-]/g, '_') + '_Decks';
+      }
+    }
+    
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.href = URL.createObjectURL(zipBlob);
+    downloadAnchor.download = `${baseName}.zip`;
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  } catch (err) {
+    alert('Failed to generate ZIP bundle: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.textContent = origText;
+      btn.disabled = false;
+    }
+    setTimeout(() => {
+      progressContainer.style.display = 'none';
+    }, 1500);
+  }
 }
   
 function switchTab(tabName) {
@@ -352,11 +647,11 @@ async function runBatchGeneration(forceAll = false) {
         progressText.textContent = msg;
       }
     );
-    renderPreview();
   } catch (err) {
     alert('Error during batch generation: ' + err.message);
     progressText.textContent = 'Error: ' + err.message;
   } finally {
+    renderPreview();
     setTimeout(() => {
       progressContainer.style.display = 'none';
       isGenerating = false;
@@ -406,9 +701,15 @@ async function exportAnki(withAudio = true) {
   
 function downloadJSON() {
   if (parsedResult.length === 0) return;
-  const deckName = document.getElementById('deckNameInput').value.trim() || 'custom_vocab';
+  const deckName = document.getElementById('deckNameInput').value.trim() || 'Japanese IT Pathway::Vocab';
+  const tag = document.getElementById('deckTagInput').value.trim() || 'IT & Business';
   const safeFileName = deckName.replace(/[^a-zA-Z0-9_\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf-]/g, '_') + '.json';
-  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(parsedResult, null, 2));
+  const payload = {
+    deckName,
+    tag,
+    cards: parsedResult
+  };
+  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
   const downloadAnchor = document.createElement('a');
   downloadAnchor.setAttribute('href', dataStr);
   downloadAnchor.setAttribute('download', safeFileName);
@@ -419,8 +720,15 @@ function downloadJSON() {
   
 function copyJSON() {
   if (parsedResult.length === 0) return;
-  navigator.clipboard.writeText(JSON.stringify(parsedResult, null, 2))
-    .then(() => alert('JSON copied to clipboard!'))
+  const deckName = document.getElementById('deckNameInput').value.trim() || 'Japanese IT Pathway::Vocab';
+  const tag = document.getElementById('deckTagInput').value.trim() || 'IT & Business';
+  const payload = {
+    deckName,
+    tag,
+    cards: parsedResult
+  };
+  navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+    .then(() => alert('Deck JSON copied to clipboard!'))
     .catch(() => alert('Failed to copy.'));
 }
   
