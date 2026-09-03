@@ -293,3 +293,48 @@ Return ONLY a JSON array with an item for each vocabulary word in this exact for
   }
 }
   
+async function formatNotesWithAi(rawText, provider, apiKey, model) {
+  if (provider === 'gemini' || provider === 'openai') {
+    if (!apiKey) throw new Error('Please enter your API Key in AI Settings.');
+    
+    const prompt = `You are an expert Japanese vocabulary curator.
+Convert and clean the following messy raw notes into clean vocabulary cards.
+Raw notes:
+${rawText}
+
+Return ONLY a JSON object with a "cards" array in this exact format:
+{
+  "cards": [
+    {
+      "word": "Japanese kanji or plain word",
+      "reading": "Reading in hiragana",
+      "english": "English meaning",
+      "sentence": "Japanese example or explanation sentence (if present)",
+      "sentenceMeaning": "English translation of sentence (if present)"
+    }
+  ]
+}`;
+
+    const res = provider === 'gemini' ? 
+      await callGeminiApi(apiKey, model, prompt) : 
+      await callOpenAiApi(apiKey, model, prompt);
+    
+    const list = res.cards || res.items || (Array.isArray(res) ? res : []);
+    if (!list.length) return rawText;
+    
+    return list.map(c => {
+      let out = `${c.word || ''} [${c.reading || c.word || ''}] ${c.english || ''}`.trim();
+      if (c.sentence) {
+        out += `\n例文: ${c.sentence}`;
+      }
+      if (c.sentenceMeaning) {
+        out += `\n（${c.sentenceMeaning}）`;
+      }
+      return out;
+    }).join('\n\n');
+  } else {
+    throw new Error('Please select Gemini or OpenAI and enter your API Key in AI Settings.');
+  }
+}
+
+  

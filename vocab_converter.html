@@ -77,6 +77,7 @@
 
     <div class="btn-group">
       <button class="btn-primary" onclick="processRawText()">⚡ Parse &amp; Preview</button>
+      <button class="btn-ai" id="aiFormatBtn" onclick="handleAiFormatNotes()">✨ AI Format Notes</button>
       <label class="btn btn-secondary" style="cursor: pointer;">
         📁 Import JSON
         <input type="file" id="jsonFileInput" accept=".json" style="display: none;" onchange="handleJsonImport(event)" />
@@ -162,9 +163,9 @@
         <label class="field-label" for="apiModelSelect">Model Selection</label>
         <select id="apiModelSelect" onchange="saveAiConfig()">
           <option value="gemini-3.8-flash">gemini-3.8-flash (Latest Flash)</option>
+          <option value="gemini-3.7-flash">gemini-3.7-flash</option>
+          <option value="gemini-3.6-flash">gemini-3.6-flash</option>
           <option value="gemini-3.5-flash">gemini-3.5-flash</option>
-          <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-          <option value="gemini-1.5-flash">gemini-1.5-flash</option>
           <option value="gpt-4o-mini">gpt-4o-mini</option>
         </select>
       </div>

@@ -7,7 +7,7 @@ function loadAiConfig() {
   const provider = localStorage.getItem('kaishi_gen_provider') || 'zero-key';
   const apiKey = localStorage.getItem('kaishi_gen_key') || '';
   let model = localStorage.getItem('kaishi_gen_model') || 'gemini-3.8-flash';
-  if (model === 'gemini-3.5-flash') model = 'gemini-3.8-flash';
+  if (model === 'gemini-1.5-flash' || model === 'gemini-2.0-flash' || model === 'gemini-3.5-flash') model = 'gemini-3.8-flash';
   
   const providerEl = document.getElementById('genProviderSelect');
   const apiKeyEl = document.getElementById('apiKeyInput');
@@ -481,6 +481,47 @@ async function handleUnifiedGenerate() {
     await runBatchGeneration(true);
   } else {
     await runBatchGeneration(false);
+  }
+}
+  
+async function handleAiFormatNotes() {
+  const rawInput = document.getElementById('rawInput');
+  const raw = rawInput?.value?.trim();
+  if (!raw) {
+    alert('Please paste some text into the notes area first.');
+    return;
+  }
+  
+  const provider = document.getElementById('genProviderSelect')?.value;
+  if (provider === 'zero-key') {
+    openAiModal();
+    alert('To use AI Format, please select Google Gemini AI and provide your API key in AI Settings.');
+    return;
+  }
+  
+  const apiKey = document.getElementById('apiKeyInput')?.value?.trim();
+  const model = document.getElementById('apiModelSelect')?.value || 'gemini-3.8-flash';
+  const btn = document.getElementById('aiFormatBtn');
+  const origText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.textContent = 'Formatting...';
+    btn.disabled = true;
+  }
+  
+  try {
+    const formatted = await formatNotesWithAi(raw, provider, apiKey, model);
+    if (formatted) {
+      rawInput.value = formatted;
+      updateInputStats();
+      processRawText();
+    }
+  } catch (err) {
+    alert('AI Format Error: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.textContent = origText;
+      btn.disabled = false;
+    }
   }
 }
   

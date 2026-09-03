@@ -137,8 +137,192 @@ function cleanExamplePrefix(line) {
   return line.replace(/^(例文[:：]|例[:：]|ex[:：]|Ex[:：]|[例※・\-])\s*/, '').trim();
 }
   
+function cleanCopiedRubySentence(sentence) {
+  if (!sentence || !/[\u4e00-\u9faf]/.test(sentence)) return sentence;
+  let s = sentence;
+  const matches = [...s.matchAll(/([\u4e00-\u9faf]+)([\u3040-\u309f]+)/g)];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const full = m[0];
+    const kanji = m[1];
+    const trailing = m[2];
+    
+    for (let len = trailing.length; len >= 1; len--) {
+      const candidateReading = trailing.slice(0, len);
+      const rest = trailing.slice(len);
+      
+      let allKanjiMatch = true;
+      let rIdx = 0;
+      for (let j = 0; j < kanji.length; j++) {
+        const k = kanji[j];
+        const kReadings = (kanjiDict[k] || []).map(r => r.replace(/[\-\.]/g, ''));
+        const matchedReading = kReadings.find(kr => candidateReading.slice(rIdx).startsWith(kr));
+        if (matchedReading) {
+          rIdx += matchedReading.length;
+        } else {
+          allKanjiMatch = false;
+          break;
+        }
+      }
+      
+      if (allKanjiMatch && rIdx === candidateReading.length) {
+        s = s.replace(full, `${kanji}[${candidateReading}]${rest}`);
+        break;
+      }
+    }
+  }
+  return s;
+}
+  
+function getPureKanjiReadings(ch) {
+  const base = kanjiDict[ch] || [];
+  const set = new Set();
+  for (let i = 0; i < base.length; i++) {
+    const r = base[i];
+    if (!r) continue;
+    const dotIdx = r.indexOf('.');
+    const clean = (dotIdx > 0 ? r.slice(0, dotIdx) : r).replace(/[\-\.]/g, '');
+    if (clean) set.add(clean);
+  }
+  return [...set];
+}
+  
+function splitWebRubyHeader(line) {
+  const clean = line.trim();
+  if (clean.includes('。') || clean.includes('（')) return null;
+
+  const kataMatch = clean.match(/^([\u30a0-\u30ff\u30fc]+)([\u3040-\u309f\u30fc]+)\s*([a-zA-Z].*)$/);
+  if (kataMatch) {
+    return {
+      term: kataMatch[1].trim(),
+      reading: kataMatch[2].trim(),
+      english: kataMatch[3].trim()
+    };
+  }
+
+  const acroMatch = clean.match(/^([A-Z0-9\-_]{2,})([\u3040-\u309f\u30fc]+)\s*([a-zA-Z].*)$/);
+  if (acroMatch) {
+    return {
+      term: acroMatch[1].trim(),
+      reading: acroMatch[2].trim(),
+      english: acroMatch[3].trim()
+    };
+  }
+
+  const engMatch = clean.match(/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]([a-zA-Z].*)$/);
+  if (!engMatch) return null;
+  const engIdx = clean.lastIndexOf(engMatch[1]);
+  if (engIdx <= 0) return null;
+
+  const jp = clean.slice(0, engIdx).trim();
+  const en = clean.slice(engIdx).trim();
+
+  const pureKanjiMatch = jp.match(/^([\u4e00-\u9faf]+)([\u3040-\u309f\u30fc]+)$/);
+  if (pureKanjiMatch) {
+    const k = pureKanjiMatch[1];
+    const r = pureKanjiMatch[2];
+    let currRIdx = 0;
+    let allMatched = true;
+    for (let i = 0; i < k.length; i++) {
+      const ch = k[i];
+      const kReadings = getPureKanjiReadings(ch);
+      const matched = kReadings.find(kr => r.slice(currRIdx).startsWith(kr));
+      if (matched) {
+        currRIdx += matched.length;
+      } else {
+        allMatched = false;
+        break;
+      }
+    }
+    if (allMatched && currRIdx === r.length) {
+      return {
+        term: k,
+        reading: r,
+        english: en
+      };
+    }
+  }
+
+  for (let split = Math.floor(jp.length / 2); split >= 2; split--) {
+    const wCandidate = jp.slice(0, split).trim();
+    const rCandidate = jp.slice(split).trim();
+    
+    if (/^[\u3040-\u309f\u30fc\s]+$/.test(rCandidate)) {
+      const commonSuffixMatch = wCandidate.match(/([\u3040-\u309f]{1,4})$/);
+      if (commonSuffixMatch && rCandidate.endsWith(commonSuffixMatch[1])) {
+        return {
+          term: wCandidate,
+          reading: rCandidate,
+          english: en
+        };
+      }
+    }
+  }
+
+  const lastKanjiMatch = jp.match(/(.*[\u4e00-\u9faf])(.*)/);
+  if (lastKanjiMatch) {
+    const upToKanji = lastKanjiMatch[1];
+    const trailingKana = lastKanjiMatch[2];
+
+    if (!trailingKana) {
+      return { term: jp, reading: jp, english: en };
+    }
+
+    let currRIdx = 0;
+    let allMatched = true;
+    for (let i = 0; i < upToKanji.length; i++) {
+      const k = upToKanji[i];
+      if (/[\u4e00-\u9faf]/.test(k)) {
+        const kReadings = getPureKanjiReadings(k);
+        const matched = kReadings.find(kr => trailingKana.slice(currRIdx).startsWith(kr));
+        if (matched) {
+          currRIdx += matched.length;
+        } else {
+          allMatched = false;
+          break;
+        }
+      } else {
+        if (trailingKana.slice(currRIdx).startsWith(k)) {
+          currRIdx += k.length;
+        }
+      }
+    }
+    if (allMatched && currRIdx > 0) {
+      const okurigana = trailingKana.slice(currRIdx);
+      return {
+        term: upToKanji + okurigana,
+        reading: trailingKana,
+        english: en
+      };
+    }
+
+    const firstKanjiMatch = jp.match(/[\u4e00-\u9faf]/);
+    const firstKanji = firstKanjiMatch ? firstKanjiMatch[0] : '';
+    const readings = (kanjiDict[firstKanji] || []).map(r => r.replace(/[\-\.]/g, ''));
+
+    for (let len = 0; len <= Math.floor(trailingKana.length / 2); len++) {
+      const okurigana = trailingKana.slice(0, len);
+      const reading = trailingKana.slice(len);
+      if (!reading) continue;
+      if (len > 0 && !reading.endsWith(okurigana)) continue;
+
+      const term = upToKanji + okurigana;
+      const startsValid = readings.some(r => reading.startsWith(r));
+      if (startsValid || len === 0) {
+        if (startsValid && (len === 0 || reading.endsWith(okurigana))) {
+          return { term, reading, english: en };
+        }
+      }
+    }
+
+    return { term: upToKanji, reading: trailingKana, english: en };
+  }
+
+  return null;
+}
+  
 function cleanSentenceRuby(raw, dynamicMap) {
-  let s = raw;
+  let s = cleanCopiedRubySentence(raw);
   s = s.replace(/([\u4e00-\u9faf]+)[\[\(\{（【《]([\u3040-\u309f]+)[\]\)\}）】》]/g, '$1[$2]');
   
   if (dynamicMap) {
@@ -259,12 +443,17 @@ function parseCard(headerLine, bodyLines, id, dynamicMap) {
   let reading = '';
   let english = '';
   
+  const webRubyMatch = splitWebRubyHeader(header);
   const bracketMatch = header.match(/^(.+?)\s*[\[\(\{（【《]([\u3040-\u309f]+)[\]\)\}）】》]\s*(.*)$/);
   const slashMatch = header.match(/^(.+?)\s*[\/\|]\s*([\u3040-\u309f]+)\s*[\/\|]\s*(.*)$/);
   const joinedMatch = header.match(/^([\u4e00-\u9faf]+)([\u3040-\u309f]+)\s+([a-zA-Z0-9\s\/\(\)\,\.\'\?\!\-&:]+)$/);
   const generalMatch = header.match(/^([^\s]+)\s+(.+)$/);
   
-  if (bracketMatch) {
+  if (webRubyMatch) {
+    plain = webRubyMatch.term;
+    reading = webRubyMatch.reading;
+    english = webRubyMatch.english;
+  } else if (bracketMatch) {
     plain = bracketMatch[1].trim();
     reading = bracketMatch[2].trim();
     english = bracketMatch[3].trim();
@@ -303,12 +492,20 @@ function parseCard(headerLine, bodyLines, id, dynamicMap) {
     if (exIdx !== -1) {
       rawExLine = cleanSentenceRuby(cleanExamplePrefix(bodyLines[exIdx]), dynamicMap);
     } else {
-      rawExLine = cleanSentenceRuby(bodyLines[0], dynamicMap);
+      const firstValidLine = bodyLines.find(l => !/^（[a-zA-Z\s,.'!?-]+）$/.test(l) && !/^\([a-zA-Z\s,.'!?-]+\)$/.test(l));
+      if (firstValidLine) {
+        rawExLine = cleanSentenceRuby(cleanExamplePrefix(firstValidLine), dynamicMap);
+      }
     }
     
     if (rawExLine) {
       sentenceKanji = stripFurigana(rawExLine);
       sentenceFurigana = alignSentenceFurigana(rawExLine);
+    }
+    
+    const enTransLine = bodyLines.find(l => /^（[a-zA-Z\s,.'!?-]+）$/.test(l) || /^\([a-zA-Z\s,.'!?-]+\)$/.test(l));
+    if (enTransLine) {
+      sentenceEnglish = enTransLine.replace(/^[（(]/, '').replace(/[）)]$/, '').trim();
     }
   }
   
@@ -362,7 +559,9 @@ function parseInputText(rawText) {
     const isExampleNote = /^(例文[:：]|例[:：]|ex[:：]|Ex[:：]|[例※・\-])/.test(line);
     const hasEnglishTail = /[a-zA-Z]{2,}/.test(line);
     const isSentence = /[。！？]/.test(line) || (line.match(/\[[^\]]+\]/g) || []).length >= 2 || (line.length > 35 && !hasEnglishTail);
+    const webHeader = splitWebRubyHeader(line);
     const isHeader = !isExampleNote && !isSentence && (
+      Boolean(webHeader) ||
       /[\[\(\{（【《][\u3040-\u309f]+[\]\)\}）】》]/.test(line) ||
       /[\/\|][\u3040-\u309f]+[\/\|]/.test(line) ||
       /^([\u4e00-\u9faf]+)([\u3040-\u309f]+)\s+[a-zA-Z]/.test(line) ||
