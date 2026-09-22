@@ -597,16 +597,8 @@ async function generateSingleCard(index) {
       const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       card.sentence = card.sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
     }
-    if (card.plain && card.sentenceFurigana && !card.sentenceFurigana.includes('<b>')) {
-      const pattern = typeof escapeWordFuriganaRegex !== 'undefined' ? 
-        escapeWordFuriganaRegex(card.wordFurigana || card.plain) : 
-        card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(pattern).test(card.sentenceFurigana)) {
-        card.sentenceFurigana = card.sentenceFurigana.replace(new RegExp(`(\\s*${pattern})`, 'g'), '<b>$1</b>');
-      } else {
-        const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        card.sentenceFurigana = card.sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
-      }
+    if (typeof ensureSentenceFuriganaBold !== 'undefined') {
+      card.sentenceFurigana = ensureSentenceFuriganaBold(card.sentenceFurigana, card.plain, card.wordFurigana, card.sentence);
     }
     
     renderPreview();

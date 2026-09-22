@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const https = require('https');
 const initSqlJs = require('sql.js');
 const JSZip = require('jszip');
-const { alignWordFurigana, alignSentenceFurigana, rubyToAnkiFurigana, stripHtml } = require('./src/parser.js');
+const { alignWordFurigana, alignSentenceFurigana, rubyToAnkiFurigana, stripHtml, ensureSentenceFuriganaBold } = require('./src/parser.js');
 
 const GUID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-./:;<=>?@[]^_`{|}~';
 
@@ -448,15 +448,9 @@ async function exportToAnkiApkg(cardsData, options = {}) {
       sentence = sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
     }
     
-    if (word && sentenceFurigana && !sentenceFurigana.includes('<b>')) {
-      const pattern = escapeWordFuriganaRegex(wordFurigana);
-      const escapedPlain = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(pattern).test(sentenceFurigana)) {
-        sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${pattern})`, 'g'), '<b>$1</b>');
-      } else {
-        sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${escapedPlain}\\[[^\\]]+\\]|${escapedPlain})`, 'g'), '<b>$1</b>');
-      }
-    }
+    if (typeof ensureSentenceFuriganaBold !== 'undefined') { 
+      sentenceFurigana = ensureSentenceFuriganaBold(sentenceFurigana, word, wordFurigana, sentence); 
+    } 
     
     const formattedTags = tag ? ` ${tag} ` : '';
     

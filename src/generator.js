@@ -130,8 +130,8 @@ Meaning: "${card.english}"
 Return ONLY a JSON object with this exact structure:
 {
   "wordFurigana": "Word with every single kanji annotated individually with Anki furigana brackets like 自[じ] 治[ち] 体[たい]",
-  "sentence": "Japanese sentence with target word surrounded by <b></b>",
-  "sentenceFurigana": "Japanese sentence with every individual kanji annotated individually with Anki furigana brackets and spaces like 粗[そ] 大[だい]ゴミ and target word bolded like <b> 自[じ] 治[ち] 体[たい]</b>",
+  "sentence": "Japanese sentence with target word surrounded by <b></b> (NO furigana brackets here, clean kanji/kana only)",
+  "sentenceFurigana": "Japanese sentence with every individual kanji annotated individually with Anki furigana brackets and spaces like 粗[そ] 大[だい]ゴミ and target word bolded like <b> 自[じ] 治[ち] 体[たい]</b> (CRITICAL: Always enclose the target word and its furigana inside <b>...</b>)",
   "sentenceMeaning": "Accurate natural English translation of the sentence"
 }`;
   
@@ -142,11 +142,23 @@ Return ONLY a JSON object with this exact structure:
     const wFuri = res.wordFurigana ? 
       alignSentenceFurigana(res.wordFurigana) : 
       alignWordFurigana(card.plain, card.rawSpeech);
-    const sFuri = alignSentenceFurigana(res.sentenceFurigana || res.sentence || '');
+    let sent = res.sentence || '';
+    if (sent && sent.includes('[')) {
+      sent = sent.replace(/<b>(.*?)<\/b>/g, (m, inner) => '<b>' + inner.replace(/\[[^\]]*\]/g, '') + '</b>');
+      sent = sent.replace(/\[[^\]]*\]/g, '');
+    }
+    if (card.plain && sent && !sent.includes('<b>')) {
+      const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      sent = sent.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
+    }
+    let sFuri = alignSentenceFurigana(res.sentenceFurigana || res.sentence || '');
+    if (typeof ensureSentenceFuriganaBold !== 'undefined') {
+      sFuri = ensureSentenceFuriganaBold(sFuri, card.plain, wFuri, sent);
+    }
     
     return {
       wordFurigana: wFuri,
-      sentence: res.sentence || '',
+      sentence: sent,
       sentenceFurigana: sFuri,
       sentenceEnglish: res.sentenceMeaning || res.sentenceEnglish || ''
     };
@@ -221,8 +233,8 @@ Return ONLY a JSON array with an item for each vocabulary word in this exact for
   {
     "idx": 0,
     "wordFurigana": "Word with every individual kanji annotated with Anki furigana brackets like 自[じ] 治[ち] 体[たい]",
-    "sentence": "Japanese sentence with target word in <b></b>",
-    "sentenceFurigana": "Japanese sentence with every individual kanji annotated with Anki furigana brackets and spaces like 粗[そ] 大[だい]ゴミ and target word bolded like <b> 自[じ] 治[ち] 体[たい]</b>",
+    "sentence": "Japanese sentence with target word in <b></b> (NO furigana brackets here, clean kanji/kana only)",
+    "sentenceFurigana": "Japanese sentence with every individual kanji annotated with Anki furigana brackets and spaces like 粗[そ] 大[だい]ゴミ and target word bolded like <b> 自[じ] 治[ち] 体[たい]</b> (CRITICAL: Always enclose the target word and its furigana inside <b>...</b>)",
     "sentenceMeaning": "Accurate English translation of the sentence"
   }
 ]`;
@@ -240,23 +252,21 @@ Return ONLY a JSON array with an item for each vocabulary word in this exact for
             card.wordFurigana = alignSentenceFurigana(item.wordFurigana);
             card.ruby = formatFuriganaToHtml(card.wordFurigana);
           }
-          card.sentence = item.sentence || card.sentence;
-          card.sentenceFurigana = alignSentenceFurigana(item.sentenceFurigana || card.sentenceFurigana);
-          card.sentenceEnglish = item.sentenceMeaning || item.sentenceEnglish || card.sentenceEnglish;
-          
-          if (card.plain && card.sentence && !card.sentence.includes('<b>')) {
+          let sent = item.sentence || card.sentence || '';
+          if (sent && sent.includes('[')) {
+            sent = sent.replace(/<b>(.*?)<\/b>/g, (m, inner) => '<b>' + inner.replace(/\[[^\]]*\]/g, '') + '</b>');
+            sent = sent.replace(/\[[^\]]*\]/g, '');
+          }
+          if (card.plain && sent && !sent.includes('<b>')) {
             const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            card.sentence = card.sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
+            sent = sent.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
           }
-          if (card.plain && card.sentenceFurigana && !card.sentenceFurigana.includes('<b>')) {
-            const pattern = escapeWordFuriganaRegex(card.wordFurigana || card.plain);
-            const escapedPlain = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            if (new RegExp(pattern).test(card.sentenceFurigana)) {
-              card.sentenceFurigana = card.sentenceFurigana.replace(new RegExp(`(\\s*${pattern})`, 'g'), '<b>$1</b>');
-            } else {
-              card.sentenceFurigana = card.sentenceFurigana.replace(new RegExp(`(\\s*${escapedPlain}\\[[^\\]]+\\]|${escapedPlain})`, 'g'), '<b>$1</b>');
-            }
+          card.sentence = sent;
+          card.sentenceFurigana = alignSentenceFurigana(item.sentenceFurigana || card.sentenceFurigana);
+          if (typeof ensureSentenceFuriganaBold !== 'undefined') {
+            card.sentenceFurigana = ensureSentenceFuriganaBold(card.sentenceFurigana, card.plain, card.wordFurigana, card.sentence);
           }
+          card.sentenceEnglish = item.sentenceMeaning || item.sentenceEnglish || card.sentenceEnglish;
         }
       }
     }
@@ -281,9 +291,8 @@ Return ONLY a JSON array with an item for each vocabulary word in this exact for
         const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         card.sentence = card.sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
       }
-      if (card.plain && card.sentenceFurigana && !card.sentenceFurigana.includes('<b>')) {
-        const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        card.sentenceFurigana = card.sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
+      if (typeof ensureSentenceFuriganaBold !== 'undefined') {
+        card.sentenceFurigana = ensureSentenceFuriganaBold(card.sentenceFurigana, card.plain, card.wordFurigana, card.sentence);
       }
     }
   }

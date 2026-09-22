@@ -386,6 +386,69 @@ function escapeWordFuriganaRegex(furi) {
   }).join('\\s*');
 }
   
+function buildFuriganaRegex(word) {
+  if (!word) return null;
+  const clean = word.trim();
+  if (/^[A-Za-z0-9\-_]+$/.test(clean)) {
+    const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(\\s*${escaped}(\\[[^\\]]*\\])?)`, 'g');
+  }
+  const chars = clean.split('');
+  const parts = chars.map((ch, i) => {
+    if (/\s/.test(ch)) return '\\s*';
+    const escaped = ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return (i > 0 ? '\\s*' : '') + escaped + '(\\[[^\\]]*\\])?';
+  });
+  return new RegExp(`(\\s*${parts.join('')})`, 'g');
+}
+  
+function ensureSentenceFuriganaBold(sentenceFurigana, plain, wordFurigana, sentence) {
+  if (!sentenceFurigana) return '';
+  let s = sentenceFurigana;
+  s = s.replace(/<b>([^<]+)<\/b>(\[[^\]]+\])/g, '<b>$1$2</b>');
+  if (s.includes('<b>')) return s;
+  
+  if (wordFurigana) {
+    const furiPattern = escapeWordFuriganaRegex(wordFurigana);
+    if (furiPattern && new RegExp(furiPattern).test(s)) {
+      return s.replace(new RegExp(`(\\s*${furiPattern})`, 'g'), '<b>$1</b>');
+    }
+  }
+  
+  if (plain) {
+    const plainRx = buildFuriganaRegex(plain);
+    if (plainRx && plainRx.test(s)) {
+      plainRx.lastIndex = 0;
+      return s.replace(plainRx, '<b>$1</b>');
+    }
+  }
+  
+  if (sentence && sentence.includes('<b>') && sentence.includes('</b>')) {
+    const sMatch = sentence.match(/^(.*?)<b>(.*?)<\/b>(.*?)$/);
+    if (sMatch) {
+      const beforePlain = sMatch[1].replace(/\[[^\]]*\]/g, '').trim();
+      const afterPlain = sMatch[3].replace(/\[[^\]]*\]/g, '').trim();
+      const beforeChar = beforePlain.slice(-3);
+      const afterChar = afterPlain.slice(0, 3);
+      if (beforeChar && afterChar) {
+        const escBefore = beforeChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escAfter = afterChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const contextRx = new RegExp(`(${escBefore}(?:\\[[^\\]]*\\])?\\s*)(.+?)(\\s*${escAfter})`);
+        if (contextRx.test(s)) {
+          return s.replace(contextRx, '$1<b>$2</b>$3');
+        }
+      }
+    }
+  }
+  
+  if (plain) {
+    const escapedPlain = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return s.replace(new RegExp(`(\\s*${escapedPlain}\\[[^\\]]+\\]|${escapedPlain})`, 'g'), '<b>$1</b>');
+  }
+  
+  return s;
+}
+  
 function normalizeCard(c, idx) {
   const plain = c.plain || c.word || c.kanji || c.expression || '';
   const rawSpeech = c.rawSpeech || c.reading || c.kana || '';
@@ -409,20 +472,17 @@ function normalizeCard(c, idx) {
   let sentenceFurigana = alignSentenceFurigana(c.sentenceFurigana || '');
   let sentenceEnglish = c.sentenceMeaning || c.sentenceEnglish || '';
   
+  if (sentence && sentence.includes('[')) {
+    sentence = sentence.replace(/<b>(.*?)<\/b>/g, (m, inner) => '<b>' + inner.replace(/\[[^\]]*\]/g, '') + '</b>');
+    sentence = sentence.replace(/\[[^\]]*\]/g, '');
+  }
+  
   if (plain && sentence && !sentence.includes('<b>')) {
     const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     sentence = sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
   }
   
-  if (plain && sentenceFurigana && !sentenceFurigana.includes('<b>')) {
-    const pattern = escapeWordFuriganaRegex(wordFurigana);
-    const escapedPlain = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (new RegExp(pattern).test(sentenceFurigana)) {
-      sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${pattern})`, 'g'), '<b>$1</b>');
-    } else {
-      sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${escapedPlain}\\[[^\\]]+\\]|${escapedPlain})`, 'g'), '<b>$1</b>');
-    }
-  }
+  sentenceFurigana = ensureSentenceFuriganaBold(sentenceFurigana, plain, wordFurigana, sentence);
   
   return {
     id: c.id || (idx + 1),
@@ -514,15 +574,7 @@ function parseCard(headerLine, bodyLines, id, dynamicMap) {
     sentenceKanji = sentenceKanji.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
   }
   
-  if (plain && sentenceFurigana) {
-    const pattern = escapeWordFuriganaRegex(wordFurigana);
-    const escapedPlain = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (new RegExp(pattern).test(sentenceFurigana)) {
-      sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${pattern})`, 'g'), '<b>$1</b>');
-    } else {
-      sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${escapedPlain}\\[[^\\]]+\\]|${escapedPlain})`, 'g'), '<b>$1</b>');
-    }
-  }
+  sentenceFurigana = ensureSentenceFuriganaBold(sentenceFurigana, plain, wordFurigana, sentenceKanji);
   
   return {
     id,
@@ -595,7 +647,10 @@ if (typeof module !== 'undefined') {
     normalizeCard,
     parseCard,
     parseInputText,
-    stripHtml
+    stripHtml,
+    escapeWordFuriganaRegex,
+    buildFuriganaRegex,
+    ensureSentenceFuriganaBold
   };
 }
   

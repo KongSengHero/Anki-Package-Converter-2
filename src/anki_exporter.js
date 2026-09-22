@@ -467,16 +467,8 @@ async function generateAnkiApkg(cards, options = {}) {
       sentence = sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
     }
     
-    if (word && sentenceFurigana && !sentenceFurigana.includes('<b>')) {
-      const pattern = typeof escapeWordFuriganaRegex !== 'undefined' ? 
-        escapeWordFuriganaRegex(wordFurigana) : 
-        wordFurigana.trim().split(/\s+/).map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
-      const escapedPlain = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(pattern).test(sentenceFurigana)) {
-        sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${pattern})`, 'g'), '<b>$1</b>');
-      } else {
-        sentenceFurigana = sentenceFurigana.replace(new RegExp(`(\\s*${escapedPlain}\\[[^\\]]+\\]|${escapedPlain})`, 'g'), '<b>$1</b>');
-      }
+    if (typeof ensureSentenceFuriganaBold !== 'undefined') {
+      sentenceFurigana = ensureSentenceFuriganaBold(sentenceFurigana, word, wordFurigana, sentence);
     }
     
     const formattedTags = tag ? ` ${tag} ` : '';

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createAnkiPackage } = require('./anki_exporter');
+const { ensureSentenceFuriganaBold } = require('./src/parser.js');
 
 function cleanExamplePrefix(line) {
   return line.replace(/^([例※・\-]|例文[:：]|ex[:：]|Ex[:：])\s*/, '').trim();
@@ -99,8 +100,9 @@ Return ONLY a JSON array with an item for each vocabulary word in this exact for
 [
   {
     "idx": 0,
-    "sentence": "Japanese sentence with target word in <b></b>",
-    "sentenceFurigana": "Japanese sentence with all kanji furigana in brackets like 漢字[かんじ] and target word bolded like <b>要件定義[ようけんていぎ]</b>",
+    "wordFurigana": "Word with every individual kanji annotated with Anki furigana brackets like 自[じ] 治[ち] 体[たい]",
+    "sentence": "Japanese sentence with target word in <b></b> (NO furigana brackets here, clean kanji/kana only)",
+    "sentenceFurigana": "Japanese sentence with every individual kanji annotated with Anki furigana brackets and spaces like 粗[そ] 大[だい]ゴミ and target word bolded like <b> 自[じ] 治[ち] 体[たい]</b> (CRITICAL: Always enclose the target word and its furigana inside <b>...</b>)",
     "sentenceMeaning": "Accurate English translation of the sentence"
   }
 ]`;
@@ -196,8 +198,12 @@ function parseCard(headerLine, bodyLines, id, dynamicMap) {
   }
 
   if (plain && sentenceFurigana) {
-    const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    sentenceFurigana = sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
+    if (typeof ensureSentenceFuriganaBold !== 'undefined') { 
+      sentenceFurigana = ensureSentenceFuriganaBold(sentenceFurigana, plain, rubyToAnkiFurigana(ruby), sentenceKanji); 
+    } else { 
+      const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+      sentenceFurigana = sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>'); 
+    } 
   }
 
   return {
@@ -226,6 +232,10 @@ function normalizeCard(c, idx) {
   const english = c.english || c.meaning || c.wordMeaning || c.glossary || '';
   
   let sentence = c.sentence || c.sentenceKanji || '';
+  if (sentence && sentence.includes('[')) { 
+    sentence = sentence.replace(/<b>(.*?)<\/b>/g, (m, inner) => '<b>' + inner.replace(/\[[^\]]*\]/g, '') + '</b>'); 
+    sentence = sentence.replace(/\[[^\]]*\]/g, ''); 
+  } 
   let sentenceFurigana = c.sentenceFurigana || '';
   let sentenceEnglish = c.sentenceMeaning || c.sentenceEnglish || '';
 
@@ -234,7 +244,9 @@ function normalizeCard(c, idx) {
     sentence = sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
   }
 
-  if (plain && sentenceFurigana && !sentenceFurigana.includes('<b>')) {
+  if (typeof ensureSentenceFuriganaBold !== 'undefined') { 
+    sentenceFurigana = ensureSentenceFuriganaBold(sentenceFurigana, plain, rubyToAnkiFurigana(ruby), sentence); 
+  } else if (plain && sentenceFurigana && !sentenceFurigana.includes('<b>')) { 
     const escaped = plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     sentenceFurigana = sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
   }
@@ -368,8 +380,24 @@ async function main() {
             const cardIdx = item.idx !== undefined ? item.idx : chunk[0].idx;
             if (cardIdx !== undefined && structuredCards[cardIdx]) {
               const card = structuredCards[cardIdx];
-              card.sentence = item.sentence || card.sentence;
-              card.sentenceFurigana = item.sentenceFurigana || card.sentenceFurigana;
+              let sent = item.sentence || card.sentence || ''; 
+              if (sent && sent.includes('[')) { 
+                sent = sent.replace(/<b>(.*?)<\/b>/g, (m, inner) => '<b>' + inner.replace(/\[[^\]]*\]/g, '') + '</b>'); 
+                sent = sent.replace(/\[[^\]]*\]/g, ''); 
+              } 
+              if (card.plain && sent && !sent.includes('<b>')) { 
+                const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+                sent = sent.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>'); 
+              } 
+              card.sentence = sent; 
+              let sFuri = item.sentenceFurigana || card.sentenceFurigana || sent; 
+              if (typeof ensureSentenceFuriganaBold !== 'undefined') { 
+                sFuri = ensureSentenceFuriganaBold(sFuri, card.plain, rubyToAnkiFurigana(card.ruby), card.sentence); 
+              } else if (card.plain && sFuri && !sFuri.includes('<b>')) { 
+                const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+                sFuri = sFuri.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>'); 
+              } 
+              card.sentenceFurigana = sFuri; 
               card.sentenceEnglish = item.sentenceMeaning || item.sentenceEnglish || card.sentenceEnglish;
             }
           }
@@ -397,7 +425,9 @@ async function main() {
           const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           card.sentence = card.sentence.replace(new RegExp(`(${escaped})`, 'g'), '<b>$1</b>');
         }
-        if (card.plain && card.sentenceFurigana && !card.sentenceFurigana.includes('<b>')) {
+        if (typeof ensureSentenceFuriganaBold !== 'undefined') { 
+          card.sentenceFurigana = ensureSentenceFuriganaBold(card.sentenceFurigana, card.plain, rubyToAnkiFurigana(card.ruby), card.sentence); 
+        } else if (card.plain && card.sentenceFurigana && !card.sentenceFurigana.includes('<b>')) {
           const escaped = card.plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           card.sentenceFurigana = card.sentenceFurigana.replace(new RegExp(`(${escaped}\\[[^\\]]+\\]|${escaped})`, 'g'), '<b>$1</b>');
         }
