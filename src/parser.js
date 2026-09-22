@@ -200,7 +200,7 @@ function splitWebRubyHeader(line) {
     };
   }
 
-  const acroMatch = clean.match(/^([A-Z0-9\-_]{2,})([\u3040-\u309f\u30fc]+)\s*([a-zA-Z].*)$/);
+  const acroMatch = clean.match(/^([A-Za-z0-9\-_]{2,})([\u3040-\u309f\u30fc]+)\s*([a-zA-Z].*)$/);
   if (acroMatch) {
     return {
       term: acroMatch[1].trim(),

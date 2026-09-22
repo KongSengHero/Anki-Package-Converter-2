@@ -7,7 +7,7 @@ function loadAiConfig() {
   const provider = localStorage.getItem('kaishi_gen_provider') || 'zero-key';
   const apiKey = localStorage.getItem('kaishi_gen_key') || '';
   let model = localStorage.getItem('kaishi_gen_model') || 'gemini-3.8-flash';
-  if (model === 'gemini-1.5-flash' || model === 'gemini-2.0-flash' || model === 'gemini-3.5-flash') model = 'gemini-3.8-flash';
+  if (model === 'gemini-1.5-flash' || model === 'gemini-2.0-flash') model = 'gemini-3.8-flash';
   
   const providerEl = document.getElementById('genProviderSelect');
   const apiKeyEl = document.getElementById('apiKeyInput');
